@@ -4,7 +4,7 @@ use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -51,6 +51,7 @@ fn compute_md5(path: &Path) -> Result<String, String> {
     Ok(format!("{:x}", result))
 }
 
+#[allow(dead_code)]
 fn walk_syncable_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     walk_dir_recursive(root, root, &mut files)?;
@@ -77,6 +78,90 @@ fn walk_dir_recursive(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Resu
         }
     }
     Ok(())
+}
+
+/// Convert a site-relative path (e.g. "galleries/coastal-sunset/01.jpg") to a
+/// workspace-relative path by stripping the first path segment.
+/// Returns None if the path has fewer than 2 segments.
+fn site_relative_to_workspace_relative(site_path: &str) -> Option<&str> {
+    // Find the first '/' and return everything after it
+    site_path.find('/').map(|idx| &site_path[idx + 1..])
+}
+
+/// Collect only the files that are reachable from galleries.json.
+///
+/// This traverses the gallery JSON structure:
+///   galleries.json → each gallery entry's slug → {slug}/gallery-details.json → photos
+///
+/// Only files explicitly referenced are included. Untracked folders/files are excluded.
+fn collect_referenced_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files: HashSet<PathBuf> = HashSet::new();
+
+    // Always include galleries.json
+    let galleries_path = root.join("galleries.json");
+    if !galleries_path.exists() {
+        return Err(format!(
+            "galleries.json not found in {}",
+            root.display()
+        ));
+    }
+    files.insert(galleries_path.clone());
+
+    // Parse galleries.json
+    let galleries_content =
+        fs::read_to_string(&galleries_path).map_err(|e| format!("Failed to read galleries.json: {}", e))?;
+    let galleries: Vec<serde_json::Value> =
+        serde_json::from_str(&galleries_content).map_err(|e| format!("Failed to parse galleries.json: {}", e))?;
+
+    for gallery in &galleries {
+        let slug = match gallery.get("slug").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        // Include cover image if referenced and exists
+        if let Some(cover) = gallery.get("cover").and_then(|v| v.as_str()) {
+            if !cover.is_empty() {
+                if let Some(rel) = site_relative_to_workspace_relative(cover) {
+                    let cover_path = root.join(rel);
+                    if cover_path.exists() && cover_path.is_file() {
+                        files.insert(cover_path);
+                    }
+                }
+            }
+        }
+
+        // Include gallery-details.json and its referenced photos
+        let details_path = root.join(slug).join("gallery-details.json");
+        if details_path.exists() {
+            files.insert(details_path.clone());
+
+            if let Ok(details_content) = fs::read_to_string(&details_path) {
+                if let Ok(details) = serde_json::from_str::<serde_json::Value>(&details_content) {
+                    if let Some(photos) = details.get("photos").and_then(|v| v.as_array()) {
+                        for photo in photos {
+                            for field in &["thumbnail", "full"] {
+                                if let Some(path_str) = photo.get(field).and_then(|v| v.as_str()) {
+                                    if !path_str.is_empty() {
+                                        if let Some(rel) = site_relative_to_workspace_relative(path_str) {
+                                            let photo_path = root.join(rel);
+                                            if photo_path.exists() && photo_path.is_file() {
+                                                files.insert(photo_path);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<PathBuf> = files.into_iter().collect();
+    result.sort();
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,7 +243,7 @@ pub async fn publish_preview(
 
     let bucket = extract_bucket_name(&bucket);
     let root = PathBuf::from(&folder_path);
-    let local_files = walk_syncable_files(&root)?;
+    let local_files = collect_referenced_files(&root)?;
 
     // Ensure prefix ends with /
     let prefix = if prefix.ends_with('/') {
@@ -599,5 +684,267 @@ mod tests {
         assert!(json.contains("toUpload"));
         assert!(json.contains("toDelete"));
         assert!(json.contains("totalFiles"));
+    }
+
+    // --- site_relative_to_workspace_relative tests ---
+
+    #[test]
+    fn test_site_relative_standard_path() {
+        assert_eq!(
+            site_relative_to_workspace_relative("galleries/coastal-sunset/01.jpg"),
+            Some("coastal-sunset/01.jpg")
+        );
+    }
+
+    #[test]
+    fn test_site_relative_nested_path() {
+        assert_eq!(
+            site_relative_to_workspace_relative("galleries/a/b/c/photo.jpg"),
+            Some("a/b/c/photo.jpg")
+        );
+    }
+
+    #[test]
+    fn test_site_relative_no_slash() {
+        assert_eq!(site_relative_to_workspace_relative("galleries"), None);
+    }
+
+    #[test]
+    fn test_site_relative_empty_string() {
+        assert_eq!(site_relative_to_workspace_relative(""), None);
+    }
+
+    // --- collect_referenced_files tests ---
+
+    use tempfile::TempDir;
+
+    /// Helper: create a file with the given content, creating parent dirs as needed.
+    fn create_file(base: &Path, relative: &str, content: &str) {
+        let path = base.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, content).unwrap();
+    }
+
+    /// Helper: create a dummy image file (1 byte).
+    fn create_image(base: &Path, relative: &str) {
+        let path = base.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, b"\xff").unwrap();
+    }
+
+    #[test]
+    fn test_collect_referenced_files_basic() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Set up galleries.json with one gallery
+        create_file(
+            root,
+            "galleries.json",
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"galleries/sunset/01.jpg"}]"#,
+        );
+
+        // Set up gallery-details.json with two photos
+        create_file(
+            root,
+            "sunset/gallery-details.json",
+            r#"{"name":"Sunset","slug":"sunset","date":"Feb 2026","description":"","photos":[
+                {"thumbnail":"galleries/sunset/01.jpg","full":"galleries/sunset/01.jpg","alt":"01"},
+                {"thumbnail":"galleries/sunset/02.jpg","full":"galleries/sunset/02.jpg","alt":"02"}
+            ]}"#,
+        );
+        create_image(root, "sunset/01.jpg");
+        create_image(root, "sunset/02.jpg");
+
+        // Untracked folder - should NOT be included
+        create_image(root, "untracked/photo.jpg");
+        create_file(
+            root,
+            "untracked/gallery-details.json",
+            r#"{"name":"Untracked","slug":"untracked","photos":[]}"#,
+        );
+
+        let result = collect_referenced_files(root).unwrap();
+
+        // Should include: galleries.json, sunset/gallery-details.json, sunset/01.jpg, sunset/02.jpg
+        assert_eq!(result.len(), 4);
+        assert!(result.contains(&root.join("galleries.json")));
+        assert!(result.contains(&root.join("sunset/gallery-details.json")));
+        assert!(result.contains(&root.join("sunset/01.jpg")));
+        assert!(result.contains(&root.join("sunset/02.jpg")));
+
+        // Should NOT include untracked files
+        assert!(!result.contains(&root.join("untracked/photo.jpg")));
+        assert!(!result.contains(&root.join("untracked/gallery-details.json")));
+    }
+
+    #[test]
+    fn test_collect_referenced_files_empty_galleries() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_file(root, "galleries.json", "[]");
+
+        let result = collect_referenced_files(root).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&root.join("galleries.json")));
+    }
+
+    #[test]
+    fn test_collect_referenced_files_missing_gallery_details() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_file(
+            root,
+            "galleries.json",
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"galleries/sunset/01.jpg"}]"#,
+        );
+
+        // Create the cover image but NO gallery-details.json
+        create_image(root, "sunset/01.jpg");
+
+        let result = collect_referenced_files(root).unwrap();
+
+        // Should include galleries.json + cover image only
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&root.join("galleries.json")));
+        assert!(result.contains(&root.join("sunset/01.jpg")));
+    }
+
+    #[test]
+    fn test_collect_referenced_files_deduplication() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Cover image is the same as a photo entry
+        create_file(
+            root,
+            "galleries.json",
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"galleries/sunset/01.jpg"}]"#,
+        );
+        create_file(
+            root,
+            "sunset/gallery-details.json",
+            r#"{"name":"Sunset","slug":"sunset","date":"Feb 2026","description":"","photos":[
+                {"thumbnail":"galleries/sunset/01.jpg","full":"galleries/sunset/01.jpg","alt":"01"}
+            ]}"#,
+        );
+        create_image(root, "sunset/01.jpg");
+
+        let result = collect_referenced_files(root).unwrap();
+
+        // galleries.json + gallery-details.json + 01.jpg (deduplicated)
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_collect_referenced_files_ignores_untracked_folders() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_file(
+            root,
+            "galleries.json",
+            r#"[{"name":"A","slug":"a","date":"","cover":""}]"#,
+        );
+        create_file(
+            root,
+            "a/gallery-details.json",
+            r#"{"name":"A","slug":"a","date":"","description":"","photos":[]}"#,
+        );
+
+        // Untracked folders with various file types
+        create_image(root, "b/photo1.jpg");
+        create_image(root, "b/photo2.png");
+        create_file(root, "b/gallery-details.json", "{}");
+        create_image(root, "c/nested/deep/img.webp");
+
+        let result = collect_referenced_files(root).unwrap();
+
+        assert_eq!(result.len(), 2); // galleries.json + a/gallery-details.json
+        assert!(result.contains(&root.join("galleries.json")));
+        assert!(result.contains(&root.join("a/gallery-details.json")));
+    }
+
+    #[test]
+    fn test_collect_referenced_files_missing_image_on_disk() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Reference an image that doesn't exist on disk
+        create_file(
+            root,
+            "galleries.json",
+            r#"[{"name":"Sunset","slug":"sunset","date":"","cover":"galleries/sunset/missing.jpg"}]"#,
+        );
+        create_file(
+            root,
+            "sunset/gallery-details.json",
+            r#"{"name":"Sunset","slug":"sunset","date":"","description":"","photos":[
+                {"thumbnail":"galleries/sunset/missing.jpg","full":"galleries/sunset/missing.jpg","alt":"missing"}
+            ]}"#,
+        );
+
+        let result = collect_referenced_files(root).unwrap();
+
+        // Only galleries.json + gallery-details.json (missing image is skipped)
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&root.join("galleries.json")));
+        assert!(result.contains(&root.join("sunset/gallery-details.json")));
+    }
+
+    #[test]
+    fn test_collect_referenced_files_multiple_galleries() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_file(
+            root,
+            "galleries.json",
+            r#"[
+                {"name":"A","slug":"a","date":"","cover":"galleries/a/img.jpg"},
+                {"name":"B","slug":"b","date":"","cover":"galleries/b/img.jpg"}
+            ]"#,
+        );
+        create_file(
+            root,
+            "a/gallery-details.json",
+            r#"{"name":"A","slug":"a","date":"","description":"","photos":[
+                {"thumbnail":"galleries/a/img.jpg","full":"galleries/a/img.jpg","alt":"img"}
+            ]}"#,
+        );
+        create_file(
+            root,
+            "b/gallery-details.json",
+            r#"{"name":"B","slug":"b","date":"","description":"","photos":[
+                {"thumbnail":"galleries/b/img.jpg","full":"galleries/b/img.jpg","alt":"img"}
+            ]}"#,
+        );
+        create_image(root, "a/img.jpg");
+        create_image(root, "b/img.jpg");
+
+        // Untracked gallery
+        create_image(root, "c/img.jpg");
+
+        let result = collect_referenced_files(root).unwrap();
+
+        // galleries.json + 2 gallery-details + 2 images = 5
+        assert_eq!(result.len(), 5);
+        assert!(!result.contains(&root.join("c/img.jpg")));
+    }
+
+    #[test]
+    fn test_collect_referenced_files_no_galleries_json() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let result = collect_referenced_files(root);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("galleries.json not found"));
     }
 }
