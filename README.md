@@ -10,6 +10,8 @@ A cross-platform desktop application for visually managing the JSON metadata tha
 - **Drag-and-drop reordering** for both gallery tiles and image tiles, persisted immediately to JSON
 - **Non-destructive** -- delete operations only remove entries from JSON; image files on disk are never touched
 - **Sensible defaults** generated for every new gallery and image entry (date, paths, alt text) so you can add with a single click
+- **Publish to S3** -- sync your workspace to an S3 bucket with a preview of changes, progress tracking, and cancel support
+- **Secure credential storage** -- AWS credentials stored in the OS keychain (macOS Keychain / Windows Credential Manager), never exposed to the frontend
 
 ## Tech Stack
 
@@ -74,11 +76,18 @@ npm test
 npm run test:watch
 ```
 
-The test suite includes 47 tests across 3 files:
+The test suite includes 63 tests across 4 files:
 
 - **`reducer.test.ts`** -- 25 tests covering all workspace reducer actions (add, delete, reorder, update galleries/photos, error handling, state reset)
 - **`components.test.tsx`** -- 20 tests for UI components (WelcomeScreen, ConfirmDialog, UntrackedList, GalleryTile, ImageTile)
 - **`App.test.tsx`** -- 2 integration tests for app-level routing
+- **`publish.test.tsx`** -- 16 tests for Settings dialog and Publish preview/progress components
+
+Rust unit tests (11 tests) cover settings serialization, content-type mapping, file filtering, S3 key construction, ETag comparison, and prefix safety checks:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
+```
 
 ## Project Structure
 
@@ -90,7 +99,9 @@ afterglow-manager/
 │   ├── tauri.conf.json           # App window config, bundler settings
 │   └── src/
 │       ├── main.rs               # Entry point
-│       └── lib.rs                # 7 Tauri IPC commands
+│       ├── lib.rs                # Tauri IPC commands + module registration
+│       ├── settings.rs           # Settings persistence + keychain + AWS validation
+│       └── publish.rs            # S3 sync: preview, execute, cancel
 ├── src/                          # React frontend
 │   ├── main.tsx                  # Entry with WorkspaceProvider
 │   ├── App.tsx                   # Welcome / main view router
@@ -112,19 +123,52 @@ afterglow-manager/
 │   │   ├── GalleryInfoPane.tsx   # Gallery metadata editor + untracked list
 │   │   ├── ImageInfoPane.tsx     # Image metadata editor + untracked list
 │   │   ├── UntrackedList.tsx     # Add / Add All for untracked items
-│   │   └── ConfirmDialog.tsx     # Destructive action confirmation modal
+│   │   ├── ConfirmDialog.tsx     # Destructive action confirmation modal
+│   │   ├── SettingsDialog.tsx    # AWS credentials + S3 configuration modal
+│   │   └── PublishPreviewDialog.tsx # S3 sync preview + progress + cancel
 │   └── test/                     # Test files
 │       ├── setup.ts              # Vitest setup + Tauri mocks
 │       ├── test-utils.tsx        # renderWithProviders helper
 │       ├── reducer.test.ts
 │       ├── components.test.tsx
-│       └── App.test.tsx
+│       ├── App.test.tsx
+│       └── publish.test.tsx
 ├── REQUIREMENTS.md               # Full requirements specification
+├── REQUIREMENTS-PUBLISH.md       # Publishing module requirements
 ├── tailwind.config.js
 ├── postcss.config.js
 ├── vite.config.ts
 └── package.json
 ```
+
+## Publishing to S3
+
+AfterGlowManager can sync your workspace directly to an S3 bucket, making your galleries available on the web.
+
+### Setup
+
+1. Click the **gear icon** in the sidebar footer to open Settings.
+2. Enter your **AWS Access Key ID** and **Secret Access Key**. These are stored securely in your OS keychain (macOS Keychain or Windows Credential Manager) and are never exposed to the frontend.
+3. Enter your **S3 Bucket Name**, **AWS Region**, and **S3 Prefix** (default: `galleries/`).
+   - Optionally enter your **CloudFront Distribution ID** (or full ARN) to automatically invalidate the CDN cache after each publish.
+4. Click **Validate** to verify your credentials have access to STS and the configured bucket.
+5. Click **Save**.
+
+### Publishing
+
+1. With a workspace open and credentials configured, the **Publish** button in the sidebar footer becomes active.
+2. Click **Publish** to see a preview: files to upload, files to delete from S3, and files already up to date.
+3. Click **Publish Now** to start the sync. A progress bar shows real-time status.
+4. You can **Cancel** mid-sync -- the current file transfer completes, and you can re-publish later to finish.
+
+### What Gets Synced
+
+- Image files (jpg, jpeg, png, gif, webp, avif, bmp, tiff, tif) and JSON files
+- Dotfiles and other file types are excluded
+- Change detection uses MD5/ETag comparison to skip unchanged files
+- Deletions only affect objects under your configured S3 prefix
+
+See [REQUIREMENTS-PUBLISH.md](./REQUIREMENTS-PUBLISH.md) for the full specification.
 
 ## How It Works
 

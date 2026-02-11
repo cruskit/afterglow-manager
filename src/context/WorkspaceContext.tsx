@@ -17,6 +17,7 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif"];
+const GALLERIES_ROOT = "galleries";
 
 function isImageFile(filename: string): boolean {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
@@ -213,11 +214,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const resolveImagePath = useCallback(
     (jsonPath: string): string => {
       if (!stateRef.current.folderPath) return "";
-      // The folder path is e.g. /abs/path/to/galleries
-      // The parent is /abs/path/to
       // jsonPath is e.g. galleries/coastal-sunset/01.jpg
-      const parentPath = stateRef.current.folderPath.replace(/\/[^/]+$/, "");
-      const absPath = `${parentPath}/${jsonPath}`;
+      // Strip the "galleries/" prefix to get the relative path within the workspace
+      const prefix = `${GALLERIES_ROOT}/`;
+      const relativePath = jsonPath.startsWith(prefix)
+        ? jsonPath.slice(prefix.length)
+        : jsonPath;
+      const absPath = `${stateRef.current.folderPath}/${relativePath}`;
       return convertFileSrc(absPath);
     },
     []
@@ -283,15 +286,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           // Auto-create with all images in directory
           const listing = await scanDirectory(`${stateRef.current.folderPath}/${slug}`);
           const images = listing.images.filter(isImageFile).sort();
-          const folderName = stateRef.current.folderName;
           const details: GalleryDetails = {
             name: slug,
             slug,
             date: getMonthYear(),
             description: "",
             photos: images.map((filename) => ({
-              thumbnail: `${folderName}/${slug}/${filename}`,
-              full: `${folderName}/${slug}/${filename}`,
+              thumbnail: `${GALLERIES_ROOT}/${slug}/${filename}`,
+              full: `${GALLERIES_ROOT}/${slug}/${filename}`,
               alt: filenameWithoutExtension(filename),
             })),
           };
@@ -340,13 +342,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const addUntrackedGallery = useCallback(
     async (dirName: string) => {
       if (!stateRef.current.folderPath) return;
-      const folderName = stateRef.current.folderName;
 
       // Get images in the directory for cover
       const listing = await scanDirectory(`${stateRef.current.folderPath}/${dirName}`);
       const images = listing.images.filter(isImageFile).sort();
       const firstImage = images.length > 0 ? images[0] : "";
-      const cover = firstImage ? `${folderName}/${dirName}/${firstImage}` : "";
+      const cover = firstImage ? `${GALLERIES_ROOT}/${dirName}/${firstImage}` : "";
 
       const entry: GalleryEntry = {
         name: dirName,
@@ -372,8 +373,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           date: getMonthYear(),
           description: "",
           photos: images.map((filename) => ({
-            thumbnail: `${folderName}/${dirName}/${filename}`,
-            full: `${folderName}/${dirName}/${filename}`,
+            thumbnail: `${GALLERIES_ROOT}/${dirName}/${filename}`,
+            full: `${GALLERIES_ROOT}/${dirName}/${filename}`,
             alt: filenameWithoutExtension(filename),
           })),
         };
@@ -394,10 +395,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     async (filename: string) => {
       if (!stateRef.current.galleryDetails) return;
       const { slug } = stateRef.current.galleryDetails;
-      const folderName = stateRef.current.folderName;
       const entry: PhotoEntry = {
-        thumbnail: `${folderName}/${slug}/${filename}`,
-        full: `${folderName}/${slug}/${filename}`,
+        thumbnail: `${GALLERIES_ROOT}/${slug}/${filename}`,
+        full: `${GALLERIES_ROOT}/${slug}/${filename}`,
         alt: filenameWithoutExtension(filename),
       };
       dispatch({ type: "ADD_PHOTO", entry });
@@ -420,7 +420,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const addAllUntrackedImages = useCallback(async () => {
     if (!stateRef.current.galleryDetails) return;
     const { slug, photos } = stateRef.current.galleryDetails;
-    const folderName = stateRef.current.folderName;
 
     // Get tracked filenames
     const trackedFilenames = new Set(
@@ -435,8 +434,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (untracked.length === 0) return;
 
     const entries: PhotoEntry[] = untracked.map((filename) => ({
-      thumbnail: `${folderName}/${slug}/${filename}`,
-      full: `${folderName}/${slug}/${filename}`,
+      thumbnail: `${GALLERIES_ROOT}/${slug}/${filename}`,
+      full: `${GALLERIES_ROOT}/${slug}/${filename}`,
       alt: filenameWithoutExtension(filename),
     }));
 

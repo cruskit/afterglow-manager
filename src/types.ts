@@ -49,6 +49,56 @@ export interface WorkspaceState {
   error: string | null;
 }
 
+// Settings & Publishing types
+export interface AppSettings {
+  bucket: string;
+  region: string;
+  s3Prefix: string;
+  lastValidatedUser: string;
+  lastValidatedAccount: string;
+  lastValidatedArn: string;
+  cloudFrontDistributionId: string;
+}
+
+export interface ValidationResult {
+  user: string;
+  account: string;
+  arn: string;
+}
+
+export interface SyncFile {
+  localPath: string;
+  s3Key: string;
+  sizeBytes: number;
+  contentType: string;
+}
+
+export interface PublishPlan {
+  planId: string;
+  toUpload: SyncFile[];
+  toDelete: string[];
+  unchanged: number;
+  totalFiles: number;
+}
+
+export interface PublishProgress {
+  current: number;
+  total: number;
+  file: string;
+  action: "upload" | "delete" | "invalidate";
+}
+
+export interface PublishResult {
+  uploaded: number;
+  deleted: number;
+  unchanged: number;
+}
+
+export interface PublishError {
+  error: string;
+  file: string;
+}
+
 export type WorkspaceAction =
   | { type: "SET_FOLDER"; path: string; name: string }
   | { type: "SET_GALLERIES"; galleries: GalleriesJson; lastModified: number | null }

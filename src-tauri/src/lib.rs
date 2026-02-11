@@ -1,6 +1,10 @@
+mod publish;
+mod settings;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -127,6 +131,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .manage(Mutex::new(publish::PublishState::new()))
         .invoke_handler(tauri::generate_handler![
             open_folder_dialog,
             scan_directory,
@@ -135,6 +140,16 @@ pub fn run() {
             file_exists,
             get_file_modified_time,
             get_image_uri,
+            settings::load_settings,
+            settings::save_settings,
+            settings::save_credentials,
+            settings::has_credentials,
+            settings::get_credential_hint,
+            settings::delete_credentials,
+            settings::validate_credentials,
+            publish::publish_preview,
+            publish::publish_execute,
+            publish::publish_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
