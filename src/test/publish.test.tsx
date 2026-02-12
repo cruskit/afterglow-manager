@@ -407,4 +407,47 @@ describe("PublishPreviewDialog", () => {
     fireEvent.click(screen.getByText("Cancel"));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("shows preview with only gallery-referenced files (filtered sync)", async () => {
+    // Simulates a backend that only returns files reachable from galleries.json:
+    // - galleries.json, sunset/gallery-details.json, sunset/01.jpg, sunset/02.jpg
+    // Untracked files (e.g. drafts/photo.jpg) are excluded by the backend
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "publish_preview") {
+        return Promise.resolve({
+          planId: "filtered-plan",
+          toUpload: [
+            { localPath: "/test/galleries.json", s3Key: "galleries/galleries.json", sizeBytes: 256, contentType: "application/json" },
+            { localPath: "/test/sunset/gallery-details.json", s3Key: "galleries/sunset/gallery-details.json", sizeBytes: 512, contentType: "application/json" },
+            { localPath: "/test/sunset/01.jpg", s3Key: "galleries/sunset/01.jpg", sizeBytes: 2048, contentType: "image/jpeg" },
+            { localPath: "/test/sunset/02.jpg", s3Key: "galleries/sunset/02.jpg", sizeBytes: 4096, contentType: "image/jpeg" },
+          ],
+          toDelete: ["galleries/old-gallery/photo.jpg", "galleries/old-gallery/gallery-details.json"],
+          unchanged: 0,
+          totalFiles: 6,
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    renderWithProviders(
+      <PublishPreviewDialog
+        open={true}
+        onClose={() => {}}
+        folderPath="/test"
+        bucket="bucket"
+        region="us-east-1"
+        prefix="galleries/"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-summary")).toBeInTheDocument();
+    });
+    // 4 to upload + 2 to delete + 0 unchanged = 6 total
+    expect(screen.getByText("6 files in workspace")).toBeInTheDocument();
+    expect(screen.getByText("new or changed files")).toBeInTheDocument();
+    expect(screen.getByText("files to remove from S3")).toBeInTheDocument();
+    expect(screen.getByText("Publish Now")).not.toBeDisabled();
+  });
 });

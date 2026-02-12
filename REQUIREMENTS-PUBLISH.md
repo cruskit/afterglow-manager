@@ -87,8 +87,14 @@ AfterGlowManager allows users to manage gallery metadata locally. The Publishing
 ### 2.3 Sync Behavior
 
 **FR-PUB-04: Sync Scope**
-- Only image files and `.json` files within the workspace are synced.
-- Other file types (`.DS_Store`, `.txt`, dotfiles) are excluded.
+- Only files reachable from the root `galleries.json` are synced:
+  - `galleries.json` itself.
+  - Each gallery's `gallery-details.json` (resolved via the gallery entry's `slug` field).
+  - All images referenced by `cover` fields in `galleries.json`.
+  - All images referenced by `thumbnail` and `full` fields in each `gallery-details.json`.
+- Files and folders not referenced through this chain (e.g., untracked galleries, stray images) are excluded from sync.
+- S3 objects under the prefix that do not correspond to referenced files are marked for deletion.
+- Other file types (`.DS_Store`, `.txt`, dotfiles) remain excluded.
 - S3 key format: `{s3Prefix}/{relative path from workspace root}`.
 
 **FR-PUB-05: Upload Logic**
