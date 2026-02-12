@@ -45,6 +45,7 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main'
     needs: [test]
+    environment: production
     permissions:
       contents: write
     strategy:
