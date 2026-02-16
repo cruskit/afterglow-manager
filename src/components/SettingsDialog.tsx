@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import type { AppSettings, ValidationResult } from "../types";
 import {
   loadSettings,
@@ -10,6 +10,7 @@ import {
   deleteCredentials,
   validateCredentials,
 } from "../commands";
+import { useUpdate } from "../context/UpdateContext";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -343,6 +344,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           <ValidationStatus validation={validation} />
         </div>
 
+        {/* About */}
+        <AboutSection />
+
         {/* Actions */}
         <div className="flex justify-end gap-3">
           <button
@@ -389,6 +393,54 @@ function ValidationStatus({ validation }: { validation: ValidationState }) {
       <div className="flex items-center gap-2 text-destructive text-sm">
         <AlertCircle className="w-4 h-4" />
         {validation.message}
+      </div>
+    </div>
+  );
+}
+
+function AboutSection() {
+  const { status, currentVersion, checkForUpdate, downloadAndInstall } = useUpdate();
+
+  return (
+    <div className="mb-6">
+      <h3 className="text-sm font-medium mb-3 text-muted-foreground">About</h3>
+      <div className="space-y-3">
+        <div className="text-sm">
+          <span className="text-muted-foreground">Version: </span>
+          <span>{currentVersion || "..."}</span>
+        </div>
+
+        {status.phase === "available" ? (
+          <div className="space-y-2">
+            <p className="text-sm text-primary">
+              Update available: v{status.version}
+            </p>
+            <button
+              onClick={() => downloadAndInstall()}
+              className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              Download and Install
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => checkForUpdate(false)}
+            disabled={status.phase === "checking"}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            {status.phase === "checking" ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Checking...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-3.5 h-3.5" />
+                Check for Updates
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
