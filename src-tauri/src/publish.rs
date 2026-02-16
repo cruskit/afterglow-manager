@@ -80,13 +80,6 @@ fn walk_dir_recursive(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Resu
     Ok(())
 }
 
-/// Convert a site-relative path (e.g. "galleries/coastal-sunset/01.jpg") to a
-/// workspace-relative path by stripping the first path segment.
-/// Returns None if the path has fewer than 2 segments.
-fn site_relative_to_workspace_relative(site_path: &str) -> Option<&str> {
-    // Find the first '/' and return everything after it
-    site_path.find('/').map(|idx| &site_path[idx + 1..])
-}
 
 /// Collect only the files that are reachable from galleries.json.
 ///
@@ -120,13 +113,12 @@ fn collect_referenced_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         };
 
         // Include cover image if referenced and exists
+        // Cover path is relative to workspace root (e.g. "sunset/01.jpg")
         if let Some(cover) = gallery.get("cover").and_then(|v| v.as_str()) {
             if !cover.is_empty() {
-                if let Some(rel) = site_relative_to_workspace_relative(cover) {
-                    let cover_path = root.join(rel);
-                    if cover_path.exists() && cover_path.is_file() {
-                        files.insert(cover_path);
-                    }
+                let cover_path = root.join(cover);
+                if cover_path.exists() && cover_path.is_file() {
+                    files.insert(cover_path);
                 }
             }
         }
@@ -143,11 +135,10 @@ fn collect_referenced_files(root: &Path) -> Result<Vec<PathBuf>, String> {
                             for field in &["thumbnail", "full"] {
                                 if let Some(path_str) = photo.get(field).and_then(|v| v.as_str()) {
                                     if !path_str.is_empty() {
-                                        if let Some(rel) = site_relative_to_workspace_relative(path_str) {
-                                            let photo_path = root.join(rel);
-                                            if photo_path.exists() && photo_path.is_file() {
-                                                files.insert(photo_path);
-                                            }
+                                        // Photo path is relative to gallery dir (e.g. "01.jpg")
+                                        let photo_path = root.join(slug).join(path_str);
+                                        if photo_path.exists() && photo_path.is_file() {
+                                            files.insert(photo_path);
                                         }
                                     }
                                 }
@@ -686,34 +677,6 @@ mod tests {
         assert!(json.contains("totalFiles"));
     }
 
-    // --- site_relative_to_workspace_relative tests ---
-
-    #[test]
-    fn test_site_relative_standard_path() {
-        assert_eq!(
-            site_relative_to_workspace_relative("galleries/coastal-sunset/01.jpg"),
-            Some("coastal-sunset/01.jpg")
-        );
-    }
-
-    #[test]
-    fn test_site_relative_nested_path() {
-        assert_eq!(
-            site_relative_to_workspace_relative("galleries/a/b/c/photo.jpg"),
-            Some("a/b/c/photo.jpg")
-        );
-    }
-
-    #[test]
-    fn test_site_relative_no_slash() {
-        assert_eq!(site_relative_to_workspace_relative("galleries"), None);
-    }
-
-    #[test]
-    fn test_site_relative_empty_string() {
-        assert_eq!(site_relative_to_workspace_relative(""), None);
-    }
-
     // --- collect_referenced_files tests ---
 
     use tempfile::TempDir;
@@ -745,7 +708,7 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"galleries/sunset/01.jpg"}]"#,
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
         );
 
         // Set up gallery-details.json with two photos
@@ -753,8 +716,8 @@ mod tests {
             root,
             "sunset/gallery-details.json",
             r#"{"name":"Sunset","slug":"sunset","date":"Feb 2026","description":"","photos":[
-                {"thumbnail":"galleries/sunset/01.jpg","full":"galleries/sunset/01.jpg","alt":"01"},
-                {"thumbnail":"galleries/sunset/02.jpg","full":"galleries/sunset/02.jpg","alt":"02"}
+                {"thumbnail":"01.jpg","full":"01.jpg","alt":"01"},
+                {"thumbnail":"02.jpg","full":"02.jpg","alt":"02"}
             ]}"#,
         );
         create_image(root, "sunset/01.jpg");
@@ -802,7 +765,7 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"galleries/sunset/01.jpg"}]"#,
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
         );
 
         // Create the cover image but NO gallery-details.json
@@ -825,13 +788,13 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"galleries/sunset/01.jpg"}]"#,
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
         );
         create_file(
             root,
             "sunset/gallery-details.json",
             r#"{"name":"Sunset","slug":"sunset","date":"Feb 2026","description":"","photos":[
-                {"thumbnail":"galleries/sunset/01.jpg","full":"galleries/sunset/01.jpg","alt":"01"}
+                {"thumbnail":"01.jpg","full":"01.jpg","alt":"01"}
             ]}"#,
         );
         create_image(root, "sunset/01.jpg");
@@ -880,13 +843,13 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"","cover":"galleries/sunset/missing.jpg"}]"#,
+            r#"[{"name":"Sunset","slug":"sunset","date":"","cover":"sunset/missing.jpg"}]"#,
         );
         create_file(
             root,
             "sunset/gallery-details.json",
             r#"{"name":"Sunset","slug":"sunset","date":"","description":"","photos":[
-                {"thumbnail":"galleries/sunset/missing.jpg","full":"galleries/sunset/missing.jpg","alt":"missing"}
+                {"thumbnail":"missing.jpg","full":"missing.jpg","alt":"missing"}
             ]}"#,
         );
 
@@ -907,22 +870,22 @@ mod tests {
             root,
             "galleries.json",
             r#"[
-                {"name":"A","slug":"a","date":"","cover":"galleries/a/img.jpg"},
-                {"name":"B","slug":"b","date":"","cover":"galleries/b/img.jpg"}
+                {"name":"A","slug":"a","date":"","cover":"a/img.jpg"},
+                {"name":"B","slug":"b","date":"","cover":"b/img.jpg"}
             ]"#,
         );
         create_file(
             root,
             "a/gallery-details.json",
             r#"{"name":"A","slug":"a","date":"","description":"","photos":[
-                {"thumbnail":"galleries/a/img.jpg","full":"galleries/a/img.jpg","alt":"img"}
+                {"thumbnail":"img.jpg","full":"img.jpg","alt":"img"}
             ]}"#,
         );
         create_file(
             root,
             "b/gallery-details.json",
             r#"{"name":"B","slug":"b","date":"","description":"","photos":[
-                {"thumbnail":"galleries/b/img.jpg","full":"galleries/b/img.jpg","alt":"img"}
+                {"thumbnail":"img.jpg","full":"img.jpg","alt":"img"}
             ]}"#,
         );
         create_image(root, "a/img.jpg");

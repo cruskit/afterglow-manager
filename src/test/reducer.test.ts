@@ -147,15 +147,15 @@ function makeGallery(overrides?: Partial<GalleryEntry>): GalleryEntry {
     name: "Test Gallery",
     slug: "test-gallery",
     date: "February 2026",
-    cover: "galleries/test-gallery/01.jpg",
+    cover: "test-gallery/01.jpg",
     ...overrides,
   };
 }
 
 function makePhoto(overrides?: Partial<PhotoEntry>): PhotoEntry {
   return {
-    thumbnail: "galleries/test/01.jpg",
-    full: "galleries/test/01.jpg",
+    thumbnail: "01.jpg",
+    full: "01.jpg",
     alt: "01",
     ...overrides,
   };
@@ -375,7 +375,7 @@ describe("workspaceReducer", () => {
         entry: { alt: "New alt" },
       });
       expect(state.galleryDetails?.photos[0].alt).toBe("New alt");
-      expect(state.galleryDetails?.photos[0].full).toBe("galleries/test/01.jpg");
+      expect(state.galleryDetails?.photos[0].full).toBe("01.jpg");
     });
   });
 

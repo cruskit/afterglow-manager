@@ -85,7 +85,7 @@ export function ImageInfoPane() {
           {selectedPhoto.full && (
             <div className="mb-3 rounded-md overflow-hidden border border-border aspect-[3/2]">
               <img
-                src={resolveImagePath(selectedPhoto.full)}
+                src={resolveImagePath(selectedPhoto.full, galleryDetails?.slug)}
                 alt={selectedPhoto.alt}
                 className="w-full h-full object-cover"
                 onError={(e) => {
