@@ -17,7 +17,6 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif"];
-const GALLERIES_ROOT = "galleries";
 
 function isImageFile(filename: string): boolean {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
@@ -185,7 +184,7 @@ interface WorkspaceContextValue {
   addUntrackedGallery: (dirName: string) => Promise<void>;
   addUntrackedImage: (filename: string) => Promise<void>;
   addAllUntrackedImages: () => Promise<void>;
-  resolveImagePath: (jsonPath: string) => string;
+  resolveImagePath: (jsonPath: string, slug?: string) => string;
   debouncedSaveGalleries: () => void;
   debouncedSaveGalleryDetails: () => void;
 }
@@ -212,14 +211,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   );
 
   const resolveImagePath = useCallback(
-    (jsonPath: string): string => {
+    (jsonPath: string, slug?: string): string => {
       if (!stateRef.current.folderPath) return "";
-      // jsonPath is e.g. galleries/coastal-sunset/01.jpg
-      // Strip the "galleries/" prefix to get the relative path within the workspace
-      const prefix = `${GALLERIES_ROOT}/`;
-      const relativePath = jsonPath.startsWith(prefix)
-        ? jsonPath.slice(prefix.length)
-        : jsonPath;
+      // Without slug: jsonPath is relative to workspace root (e.g. "sunset/01.jpg" for covers)
+      // With slug: jsonPath is relative to the gallery dir (e.g. "01.jpg" for photos)
+      const relativePath = slug ? `${slug}/${jsonPath}` : jsonPath;
       const absPath = `${stateRef.current.folderPath}/${relativePath}`;
       return convertFileSrc(absPath);
     },
@@ -292,8 +288,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             date: getMonthYear(),
             description: "",
             photos: images.map((filename) => ({
-              thumbnail: `${GALLERIES_ROOT}/${slug}/${filename}`,
-              full: `${GALLERIES_ROOT}/${slug}/${filename}`,
+              thumbnail: filename,
+              full: filename,
               alt: filenameWithoutExtension(filename),
             })),
           };
@@ -347,7 +343,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const listing = await scanDirectory(`${stateRef.current.folderPath}/${dirName}`);
       const images = listing.images.filter(isImageFile).sort();
       const firstImage = images.length > 0 ? images[0] : "";
-      const cover = firstImage ? `${GALLERIES_ROOT}/${dirName}/${firstImage}` : "";
+      const cover = firstImage ? `${dirName}/${firstImage}` : "";
 
       const entry: GalleryEntry = {
         name: dirName,
@@ -373,8 +369,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           date: getMonthYear(),
           description: "",
           photos: images.map((filename) => ({
-            thumbnail: `${GALLERIES_ROOT}/${dirName}/${filename}`,
-            full: `${GALLERIES_ROOT}/${dirName}/${filename}`,
+            thumbnail: filename,
+            full: filename,
             alt: filenameWithoutExtension(filename),
           })),
         };
@@ -396,8 +392,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (!stateRef.current.galleryDetails) return;
       const { slug } = stateRef.current.galleryDetails;
       const entry: PhotoEntry = {
-        thumbnail: `${GALLERIES_ROOT}/${slug}/${filename}`,
-        full: `${GALLERIES_ROOT}/${slug}/${filename}`,
+        thumbnail: filename,
+        full: filename,
         alt: filenameWithoutExtension(filename),
       };
       dispatch({ type: "ADD_PHOTO", entry });
@@ -434,8 +430,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (untracked.length === 0) return;
 
     const entries: PhotoEntry[] = untracked.map((filename) => ({
-      thumbnail: `${GALLERIES_ROOT}/${slug}/${filename}`,
-      full: `${GALLERIES_ROOT}/${slug}/${filename}`,
+      thumbnail: filename,
+      full: filename,
       alt: filenameWithoutExtension(filename),
     }));
 

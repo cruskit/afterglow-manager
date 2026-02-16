@@ -11,9 +11,9 @@ interface ImageTileProps {
 }
 
 export function ImageTile({ entry, index, isSelected, onClick }: ImageTileProps) {
-  const { resolveImagePath } = useWorkspace();
+  const { state, resolveImagePath } = useWorkspace();
   const [imgError, setImgError] = useState(false);
-  const src = entry.full ? resolveImagePath(entry.full) : "";
+  const src = entry.full ? resolveImagePath(entry.full, state.galleryDetails?.slug) : "";
 
   return (
     <div
