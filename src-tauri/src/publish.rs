@@ -100,11 +100,23 @@ fn collect_referenced_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     }
     files.insert(galleries_path.clone());
 
-    // Parse galleries.json
+    // Parse galleries.json (supports both wrapped and legacy formats)
     let galleries_content =
         fs::read_to_string(&galleries_path).map_err(|e| format!("Failed to read galleries.json: {}", e))?;
-    let galleries: Vec<serde_json::Value> =
+    let raw: serde_json::Value =
         serde_json::from_str(&galleries_content).map_err(|e| format!("Failed to parse galleries.json: {}", e))?;
+    let galleries = if let Some(arr) = raw.as_array() {
+        // Legacy format: plain array
+        arr.clone()
+    } else if let Some(obj) = raw.as_object() {
+        // New format: { schemaVersion, galleries: [...] }
+        obj.get("galleries")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        return Err("galleries.json has unexpected format".to_string());
+    };
 
     for gallery in &galleries {
         let slug = match gallery.get("slug").and_then(|v| v.as_str()) {
@@ -704,11 +716,11 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
 
-        // Set up galleries.json with one gallery
+        // Set up galleries.json with one gallery (new wrapped format)
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
+            r#"{"schemaVersion":1,"galleries":[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]}"#,
         );
 
         // Set up gallery-details.json with two photos
@@ -746,11 +758,38 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_referenced_files_legacy_format() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        // Legacy format: plain array (no schemaVersion wrapper)
+        create_file(
+            root,
+            "galleries.json",
+            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
+        );
+        create_file(
+            root,
+            "sunset/gallery-details.json",
+            r#"{"name":"Sunset","slug":"sunset","date":"Feb 2026","description":"","photos":[
+                {"thumbnail":"01.jpg","full":"01.jpg","alt":"01"}
+            ]}"#,
+        );
+        create_image(root, "sunset/01.jpg");
+
+        let result = collect_referenced_files(root).unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&root.join("galleries.json")));
+        assert!(result.contains(&root.join("sunset/gallery-details.json")));
+        assert!(result.contains(&root.join("sunset/01.jpg")));
+    }
+
+    #[test]
     fn test_collect_referenced_files_empty_galleries() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
 
-        create_file(root, "galleries.json", "[]");
+        create_file(root, "galleries.json", r#"{"schemaVersion":1,"galleries":[]}"#);
 
         let result = collect_referenced_files(root).unwrap();
         assert_eq!(result.len(), 1);
@@ -765,7 +804,7 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
+            r#"{"schemaVersion":1,"galleries":[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]}"#,
         );
 
         // Create the cover image but NO gallery-details.json
@@ -788,7 +827,7 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]"#,
+            r#"{"schemaVersion":1,"galleries":[{"name":"Sunset","slug":"sunset","date":"Feb 2026","cover":"sunset/01.jpg"}]}"#,
         );
         create_file(
             root,
@@ -813,7 +852,7 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"A","slug":"a","date":"","cover":""}]"#,
+            r#"{"schemaVersion":1,"galleries":[{"name":"A","slug":"a","date":"","cover":""}]}"#,
         );
         create_file(
             root,
@@ -843,7 +882,7 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[{"name":"Sunset","slug":"sunset","date":"","cover":"sunset/missing.jpg"}]"#,
+            r#"{"schemaVersion":1,"galleries":[{"name":"Sunset","slug":"sunset","date":"","cover":"sunset/missing.jpg"}]}"#,
         );
         create_file(
             root,
@@ -869,10 +908,10 @@ mod tests {
         create_file(
             root,
             "galleries.json",
-            r#"[
+            r#"{"schemaVersion":1,"galleries":[
                 {"name":"A","slug":"a","date":"","cover":"a/img.jpg"},
                 {"name":"B","slug":"b","date":"","cover":"b/img.jpg"}
-            ]"#,
+            ]}"#,
         );
         create_file(
             root,

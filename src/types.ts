@@ -8,6 +8,21 @@ export interface GalleryEntry {
 
 export type GalleriesJson = GalleryEntry[];
 
+// File-level types (with schema version wrapper)
+export interface GalleriesFile {
+  schemaVersion: number;
+  galleries: GalleryEntry[];
+}
+
+export interface GalleryDetailsFile {
+  schemaVersion: number;
+  name: string;
+  slug: string;
+  date: string;
+  description: string;
+  photos: PhotoEntry[];
+}
+
 // gallery-details.json photo entry
 export interface PhotoEntry {
   thumbnail: string;

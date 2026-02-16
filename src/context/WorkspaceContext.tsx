@@ -5,7 +5,6 @@ import type {
   GalleryEntry,
   GalleryDetails,
   PhotoEntry,
-  GalleriesJson,
 } from "../types";
 import {
   openFolderDialog,
@@ -14,6 +13,12 @@ import {
   writeJsonFile,
   fileExists,
 } from "../commands";
+import {
+  migrateGalleries,
+  migrateGalleryDetails,
+  CURRENT_GALLERIES_SCHEMA,
+  CURRENT_DETAILS_SCHEMA,
+} from "../migrations";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif"];
@@ -240,16 +245,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try {
       const exists = await fileExists(path);
       if (!exists) {
-        await writeJsonFile(path, []);
+        await writeJsonFile(path, { schemaVersion: CURRENT_GALLERIES_SCHEMA, galleries: [] });
         dispatch({ type: "SET_GALLERIES", galleries: [], lastModified: null });
         return;
       }
-      const data = await readJsonFile(path);
-      if (!Array.isArray(data)) {
-        dispatch({ type: "SET_ERROR", error: "galleries.json is not a valid array" });
-        return;
+      const raw = await readJsonFile(path);
+      const { data, migrated } = migrateGalleries(raw);
+      if (migrated) {
+        await writeJsonFile(path, data);
       }
-      dispatch({ type: "SET_GALLERIES", galleries: data as GalleriesJson, lastModified: Date.now() });
+      dispatch({ type: "SET_GALLERIES", galleries: data.galleries, lastModified: Date.now() });
     } catch (e) {
       dispatch({ type: "SET_ERROR", error: `Failed to read galleries.json: ${e}` });
     }
@@ -258,7 +263,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const saveGalleries = useCallback(async () => {
     if (!stateRef.current.folderPath) return;
     try {
-      await writeJsonFile(galleriesJsonPath(), stateRef.current.galleries);
+      await writeJsonFile(galleriesJsonPath(), {
+        schemaVersion: CURRENT_GALLERIES_SCHEMA,
+        galleries: stateRef.current.galleries,
+      });
       dispatch({ type: "SET_GALLERIES", galleries: stateRef.current.galleries, lastModified: Date.now() });
     } catch (e) {
       dispatch({ type: "SET_ERROR", error: `Failed to save galleries.json: ${e}` });
@@ -293,12 +301,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
               alt: filenameWithoutExtension(filename),
             })),
           };
-          await writeJsonFile(path, details);
+          await writeJsonFile(path, { schemaVersion: CURRENT_DETAILS_SCHEMA, ...details });
           dispatch({ type: "SET_GALLERY_DETAILS", details, lastModified: Date.now() });
           return;
         }
-        const data = await readJsonFile(path);
-        dispatch({ type: "SET_GALLERY_DETAILS", details: data as GalleryDetails, lastModified: Date.now() });
+        const raw = await readJsonFile(path);
+        const { data, migrated } = migrateGalleryDetails(raw);
+        if (migrated) {
+          await writeJsonFile(path, data);
+        }
+        const { schemaVersion: _, ...details } = data;
+        dispatch({ type: "SET_GALLERY_DETAILS", details, lastModified: Date.now() });
       } catch (e) {
         dispatch({ type: "SET_ERROR", error: `Failed to read gallery-details.json: ${e}` });
       }
@@ -310,7 +323,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!stateRef.current.folderPath || !stateRef.current.galleryDetails) return;
     const slug = stateRef.current.galleryDetails.slug;
     try {
-      await writeJsonFile(galleryDetailsJsonPath(slug), stateRef.current.galleryDetails);
+      await writeJsonFile(galleryDetailsJsonPath(slug), {
+        schemaVersion: CURRENT_DETAILS_SCHEMA,
+        ...stateRef.current.galleryDetails,
+      });
       dispatch({
         type: "SET_GALLERY_DETAILS",
         details: stateRef.current.galleryDetails,
@@ -356,7 +372,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
       // Save galleries.json immediately
       const updatedGalleries = [...stateRef.current.galleries, entry];
-      await writeJsonFile(galleriesJsonPath(), updatedGalleries);
+      await writeJsonFile(galleriesJsonPath(), {
+        schemaVersion: CURRENT_GALLERIES_SCHEMA,
+        galleries: updatedGalleries,
+      });
       dispatch({ type: "SET_GALLERIES", galleries: updatedGalleries, lastModified: Date.now() });
 
       // Create gallery-details.json if it doesn't exist
@@ -374,7 +393,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             alt: filenameWithoutExtension(filename),
           })),
         };
-        await writeJsonFile(detailsPath, details);
+        await writeJsonFile(detailsPath, { schemaVersion: CURRENT_DETAILS_SCHEMA, ...details });
       }
 
       // Select the newly added gallery
@@ -403,7 +422,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         ...stateRef.current.galleryDetails,
         photos: [...stateRef.current.galleryDetails.photos, entry],
       };
-      await writeJsonFile(galleryDetailsJsonPath(slug), updatedDetails);
+      await writeJsonFile(galleryDetailsJsonPath(slug), {
+        schemaVersion: CURRENT_DETAILS_SCHEMA,
+        ...updatedDetails,
+      });
       dispatch({ type: "SET_GALLERY_DETAILS", details: updatedDetails, lastModified: Date.now() });
 
       // Select the new image
@@ -441,7 +463,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       ...stateRef.current.galleryDetails,
       photos: [...stateRef.current.galleryDetails.photos, ...entries],
     };
-    await writeJsonFile(galleryDetailsJsonPath(slug), updatedDetails);
+    await writeJsonFile(galleryDetailsJsonPath(slug), {
+      schemaVersion: CURRENT_DETAILS_SCHEMA,
+      ...updatedDetails,
+    });
     dispatch({ type: "SET_GALLERY_DETAILS", details: updatedDetails, lastModified: Date.now() });
 
     // Select first newly added
