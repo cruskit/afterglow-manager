@@ -1,9 +1,14 @@
 import React from "react";
 import { render, type RenderOptions } from "@testing-library/react";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
+import { UpdateProvider } from "../context/UpdateContext";
 
 function AllProviders({ children }: { children: React.ReactNode }) {
-  return <WorkspaceProvider>{children}</WorkspaceProvider>;
+  return (
+    <WorkspaceProvider>
+      <UpdateProvider>{children}</UpdateProvider>
+    </WorkspaceProvider>
+  );
 }
 
 export function renderWithProviders(
