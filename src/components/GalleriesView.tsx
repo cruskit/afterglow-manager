@@ -1,7 +1,8 @@
-import { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { GalleryTile } from "./GalleryTile";
 import { GalleryInfoPane } from "./GalleryInfoPane";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   DndContext,
   closestCenter,
@@ -24,10 +25,12 @@ interface SortableGalleryTileProps {
   isSelected: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  photoCount?: { tracked: number; total: number };
   id: string;
 }
 
-function SortableGalleryTile({ entry, index, isSelected, onClick, onDoubleClick, id }: SortableGalleryTileProps) {
+function SortableGalleryTile({ entry, index, isSelected, onClick, onDoubleClick, onContextMenu, photoCount, id }: SortableGalleryTileProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
   const style = {
@@ -45,6 +48,8 @@ function SortableGalleryTile({ entry, index, isSelected, onClick, onDoubleClick,
         isSelected={isSelected}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
+        photoCount={photoCount}
       />
     </div>
   );
@@ -53,6 +58,8 @@ function SortableGalleryTile({ entry, index, isSelected, onClick, onDoubleClick,
 export function GalleriesView() {
   const { state, dispatch, saveGalleries } = useWorkspace();
   const { galleries, selectedGalleryIndex } = state;
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null);
+  const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -106,6 +113,37 @@ export function GalleriesView() {
     [galleries, dispatch]
   );
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, index: number) => {
+      e.preventDefault();
+      dispatch({ type: "SELECT_GALLERY", index });
+      setContextMenu({ x: e.clientX, y: e.clientY, index });
+    },
+    [dispatch]
+  );
+
+  const handleOpenFromMenu = useCallback(() => {
+    if (!contextMenu) return;
+    const gallery = galleries[contextMenu.index];
+    if (gallery) {
+      dispatch({ type: "SELECT_TREE_NODE", node: gallery.slug });
+    }
+    setContextMenu(null);
+  }, [contextMenu, galleries, dispatch]);
+
+  const handleDeleteFromMenu = useCallback(() => {
+    if (!contextMenu) return;
+    setConfirmDeleteIndex(contextMenu.index);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (confirmDeleteIndex === null) return;
+    dispatch({ type: "DELETE_GALLERY", index: confirmDeleteIndex });
+    setConfirmDeleteIndex(null);
+    setTimeout(() => saveGalleries(), 50);
+  }, [confirmDeleteIndex, dispatch, saveGalleries]);
+
   const items = galleries.map((_, i) => `gallery-${i}`);
 
   return (
@@ -125,17 +163,22 @@ export function GalleriesView() {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={items} strategy={rectSortingStrategy}>
             <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
-              {galleries.map((entry, i) => (
-                <SortableGalleryTile
-                  key={`gallery-${i}`}
-                  id={`gallery-${i}`}
-                  entry={entry}
-                  index={i}
-                  isSelected={selectedGalleryIndex === i}
-                  onClick={() => handleTileClick(i)}
-                  onDoubleClick={() => handleTileDoubleClick(i)}
-                />
-              ))}
+              {galleries.map((entry, i) => {
+                const liveCount = state.galleryCounts[entry.slug];
+                return (
+                  <SortableGalleryTile
+                    key={`gallery-${i}`}
+                    id={`gallery-${i}`}
+                    entry={entry}
+                    index={i}
+                    isSelected={selectedGalleryIndex === i}
+                    onClick={() => handleTileClick(i)}
+                    onDoubleClick={() => handleTileDoubleClick(i)}
+                    onContextMenu={(e) => handleContextMenu(e, i)}
+                    photoCount={liveCount}
+                  />
+                );
+              })}
             </div>
           </SortableContext>
         </DndContext>
@@ -146,6 +189,39 @@ export function GalleriesView() {
         )}
       </div>
       <GalleryInfoPane />
+
+      {contextMenu && (
+        <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} />
+      )}
+      {contextMenu && (
+        <div
+          style={{ position: "fixed", top: contextMenu.y, left: contextMenu.x }}
+          className="z-50 bg-background border border-border rounded-md shadow-lg py-1 min-w-36 text-sm"
+        >
+          <button
+            onClick={handleOpenFromMenu}
+            className="w-full text-left px-3 py-1.5 hover:bg-muted transition-colors"
+          >
+            Open Gallery
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            onClick={handleDeleteFromMenu}
+            className="w-full text-left px-3 py-1.5 text-destructive hover:bg-muted transition-colors"
+          >
+            Delete Gallery
+          </button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDeleteIndex !== null}
+        title="Delete Gallery"
+        message={`Delete "${confirmDeleteIndex !== null ? galleries[confirmDeleteIndex]?.name : ""}" from the list of galleries that will be published. This will not delete the files on disk.`}
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmDeleteIndex(null)}
+      />
     </div>
   );
 }

@@ -11,7 +11,7 @@ export function ImageInfoPane() {
     addUntrackedImage,
     addAllUntrackedImages,
     saveGalleryDetails,
-    resolveImagePath,
+    saveGalleries,
   } = useWorkspace();
   const { galleryDetails, selectedImageIndex, currentDirImages } = state;
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -21,6 +21,12 @@ export function ImageInfoPane() {
     galleryDetails && selectedImageIndex !== null
       ? galleryDetails.photos[selectedImageIndex]
       : null;
+
+  const galleryIndex = state.galleries.findIndex((g) => g.slug === state.selectedTreeNode);
+  const currentCover = galleryIndex >= 0 ? state.galleries[galleryIndex]?.cover : null;
+  const isCurrentCover = selectedPhoto
+    ? currentCover === `${galleryDetails?.slug}/${selectedPhoto.full}`
+    : false;
 
   // Untracked images
   const trackedFilenames = new Set(
@@ -49,6 +55,16 @@ export function ImageInfoPane() {
     setTimeout(() => saveGalleryDetails(), 50);
   }, [selectedImageIndex, dispatch, saveGalleryDetails]);
 
+  const handleSetAsCover = useCallback(() => {
+    if (!selectedPhoto || galleryIndex < 0 || !galleryDetails) return;
+    dispatch({
+      type: "UPDATE_GALLERY",
+      index: galleryIndex,
+      entry: { cover: `${galleryDetails.slug}/${selectedPhoto.full}` },
+    });
+    saveGalleries();
+  }, [selectedPhoto, galleryIndex, galleryDetails, dispatch, saveGalleries]);
+
   const handleAddUntracked = useCallback(
     async (filename: string) => {
       await addUntrackedImage(filename);
@@ -73,27 +89,13 @@ export function ImageInfoPane() {
             className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background mb-3 focus:outline-none focus:ring-1 focus:ring-ring"
           />
 
-          <label className="block text-xs text-muted-foreground mb-1">Full Image Path</label>
-          <input
-            type="text"
-            value={selectedPhoto.full}
-            onChange={(e) => handleFieldChange("full", e.target.value)}
-            onBlur={handleBlur}
-            className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background mb-3 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-
-          {selectedPhoto.full && (
-            <div className="mb-3 rounded-md overflow-hidden border border-border aspect-[3/2]">
-              <img
-                src={resolveImagePath(selectedPhoto.full, galleryDetails?.slug)}
-                alt={selectedPhoto.alt}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-            </div>
-          )}
+          <button
+            onClick={handleSetAsCover}
+            disabled={isCurrentCover}
+            className="w-full px-3 py-2 text-sm rounded-md border border-border hover:bg-muted transition-colors mb-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isCurrentCover ? "Current Cover" : "Set as Cover"}
+          </button>
 
           <button
             onClick={() => setConfirmDelete(true)}

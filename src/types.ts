@@ -58,6 +58,7 @@ export interface WorkspaceState {
   selectedImageIndex: number | null;
   galleryDetails: GalleryDetails | null;
   galleryDetailsLastModified: number | null;
+  galleryCounts: Record<string, { tracked: number; total: number }>;
   subdirectories: string[];
   currentDirImages: string[];
   viewMode: ViewMode;
@@ -136,5 +137,6 @@ export type WorkspaceAction =
   | { type: "ADD_PHOTOS"; entries: PhotoEntry[] }
   | { type: "REORDER_PHOTOS"; fromIndex: number; toIndex: number }
   | { type: "SET_DIR_IMAGES"; images: string[] }
+  | { type: "SET_GALLERY_COUNTS"; counts: Record<string, { tracked: number; total: number }> }
   | { type: "SET_ERROR"; error: string | null }
   | { type: "RESET" };

@@ -48,6 +48,7 @@ const initialState: WorkspaceState = {
   selectedImageIndex: null,
   galleryDetails: null,
   galleryDetailsLastModified: null,
+  galleryCounts: {},
   subdirectories: [],
   currentDirImages: [],
   viewMode: "welcome",
@@ -129,30 +130,41 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     case "DELETE_PHOTO": {
       if (!state.galleryDetails) return state;
       const photos = state.galleryDetails.photos.filter((_, i) => i !== action.index);
+      const slug = state.galleryDetails.slug;
+      const prev = state.galleryCounts[slug];
       return {
         ...state,
         galleryDetails: { ...state.galleryDetails, photos },
         selectedImageIndex: null,
+        galleryCounts: prev
+          ? { ...state.galleryCounts, [slug]: { ...prev, tracked: photos.length } }
+          : state.galleryCounts,
       };
     }
     case "ADD_PHOTO": {
       if (!state.galleryDetails) return state;
+      const photos = [...state.galleryDetails.photos, action.entry];
+      const slug = state.galleryDetails.slug;
+      const prev = state.galleryCounts[slug];
       return {
         ...state,
-        galleryDetails: {
-          ...state.galleryDetails,
-          photos: [...state.galleryDetails.photos, action.entry],
-        },
+        galleryDetails: { ...state.galleryDetails, photos },
+        galleryCounts: prev
+          ? { ...state.galleryCounts, [slug]: { ...prev, tracked: photos.length } }
+          : state.galleryCounts,
       };
     }
     case "ADD_PHOTOS": {
       if (!state.galleryDetails) return state;
+      const photos = [...state.galleryDetails.photos, ...action.entries];
+      const slug = state.galleryDetails.slug;
+      const prev = state.galleryCounts[slug];
       return {
         ...state,
-        galleryDetails: {
-          ...state.galleryDetails,
-          photos: [...state.galleryDetails.photos, ...action.entries],
-        },
+        galleryDetails: { ...state.galleryDetails, photos },
+        galleryCounts: prev
+          ? { ...state.galleryCounts, [slug]: { ...prev, tracked: photos.length } }
+          : state.galleryCounts,
       };
     }
     case "REORDER_PHOTOS": {
@@ -167,6 +179,8 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     }
     case "SET_DIR_IMAGES":
       return { ...state, currentDirImages: action.images };
+    case "SET_GALLERY_COUNTS":
+      return { ...state, galleryCounts: action.counts };
     case "SET_ERROR":
       return { ...state, error: action.error };
     case "RESET":
@@ -239,6 +253,33 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "SET_DIR_IMAGES", images: listing.images });
   }, []);
 
+  const loadGalleryCounts = useCallback(async (galleries: GalleryEntry[]) => {
+    if (!stateRef.current.folderPath) return;
+    const counts: Record<string, { tracked: number; total: number }> = {};
+    await Promise.all(
+      galleries.map(async (g) => {
+        try {
+          const dirPath = `${stateRef.current.folderPath}/${g.slug}`;
+          const [listing, detailsExist] = await Promise.all([
+            scanDirectory(dirPath),
+            fileExists(`${dirPath}/gallery-details.json`),
+          ]);
+          const total = listing.images.filter(isImageFile).length;
+          let tracked = 0;
+          if (detailsExist) {
+            const raw = await readJsonFile(`${dirPath}/gallery-details.json`);
+            const photos = (raw as { photos?: unknown[] }).photos ?? [];
+            tracked = photos.length;
+          }
+          counts[g.slug] = { tracked, total };
+        } catch {
+          // If unreadable, omit the count
+        }
+      })
+    );
+    dispatch({ type: "SET_GALLERY_COUNTS", counts });
+  }, []);
+
   const loadGalleries = useCallback(async () => {
     if (!stateRef.current.folderPath) return;
     const path = galleriesJsonPath();
@@ -255,10 +296,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         await writeJsonFile(path, data);
       }
       dispatch({ type: "SET_GALLERIES", galleries: data.galleries, lastModified: Date.now() });
+      loadGalleryCounts(data.galleries);
     } catch (e) {
       dispatch({ type: "SET_ERROR", error: `Failed to read galleries.json: ${e}` });
     }
-  }, [galleriesJsonPath]);
+  }, [galleriesJsonPath, loadGalleryCounts]);
 
   const saveGalleries = useCallback(async () => {
     if (!stateRef.current.folderPath) return;
