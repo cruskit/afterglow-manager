@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AfterGlow Manager is a Tauri 2.x + React 19 desktop app for managing JSON metadata that powers a static photo gallery website. It provides a GUI for editing `galleries.json` and per-gallery `gallery-details.json` files, with S3 publishing and CloudFront invalidation.
 
+The static website itself (`afterglow-website/`) is bundled into this repo and published to S3 alongside the gallery data. It consists of `index.html`, `afterglow/css/styles.css`, and `afterglow/js/app.js` — plain HTML/CSS/JS with no build step.
+
 ## Commands
 
 ```bash
@@ -44,20 +46,22 @@ npm run tauri build
 **Key Rust modules:**
 - `lib.rs` — IPC command registration and all `#[tauri::command]` handlers
 - `settings.rs` — AppSettings persistence (JSON file + OS keychain), AWS credential validation via STS
-- `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Only syncs files reachable from `galleries.json`.
+- `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Syncs gallery data files (reachable from `galleries.json`) plus the bundled website assets from `s3Root` (the `afterglow-website/` directory).
 
 **Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts.
 
 ## Data Model
 
-- `galleries.json` at workspace root: array of `{ name, slug, date, cover }` entries
-- `gallery-details.json` inside each gallery subfolder: `{ name, slug, date, description, photos: [{ thumbnail, full, alt }] }`
+- `galleries.json` at workspace root: `{ schemaVersion, galleries: [{ name, slug, date, cover }] }`
+- `gallery-details.json` inside each gallery subfolder: `{ schemaVersion, name, slug, date, description, photos: [{ thumbnail, full, alt }] }`
+- Both files include a `schemaVersion` field (currently `1`). On load, `src/migrations.ts` detects old formats (v0 = no `schemaVersion`) and migrates them automatically, then re-saves.
 - Supported image extensions: jpg, jpeg, png, gif, webp, avif, bmp, tiff, tif
 
 ## Testing
 
 Frontend tests use Vitest + React Testing Library with Tauri API mocks defined in `src/test/setup.ts`. Test files:
 - `reducer.test.ts` — workspace reducer actions
+- `migrations.test.ts` — schema migration logic for both JSON file types
 - `components.test.tsx` — individual component behavior
 - `publish.test.tsx` — settings dialog and publish preview
 - `App.test.tsx` — app-level routing
@@ -78,7 +82,7 @@ GitHub Actions (`.github/workflows/ci.yml`): every push runs type check + Vitest
 
 ## Version Sync
 
-Version must match across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. CI verifies this. Use `scripts/bump-version.sh <new-version>` to update all three.
+Version must match across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. CI verifies this. Use `scripts/bump-version.sh <new-version>` to update all four files — it also updates the `AfterGlow vX.Y.Z` string in `afterglow-website/index.html`.
 
 **When creating a PR**, always bump the version and include it in the PR commit. Determine the semver bump type from the changes:
 - **patch** (x.y.Z): bug fixes, minor tweaks, docs
