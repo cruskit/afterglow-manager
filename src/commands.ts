@@ -64,9 +64,9 @@ export async function publishPreview(
   folderPath: string,
   bucket: string,
   region: string,
-  prefix: string
+  s3Root: string
 ): Promise<PublishPlan> {
-  return invoke<PublishPlan>("publish_preview", { folderPath, bucket, region, prefix });
+  return invoke<PublishPlan>("publish_preview", { folderPath, bucket, region, s3Root });
 }
 
 export async function publishExecute(planId: string): Promise<void> {

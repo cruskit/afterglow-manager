@@ -114,7 +114,7 @@ export function TreeView() {
           folderPath={folderPath}
           bucket={settings.bucket}
           region={settings.region}
-          prefix={settings.s3Prefix}
+          s3Root={settings.s3Prefix}
         />
       )}
     </>

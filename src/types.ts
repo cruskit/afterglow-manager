@@ -68,11 +68,14 @@ export interface WorkspaceState {
 export interface AppSettings {
   bucket: string;
   region: string;
+  /** S3 site root prefix (e.g. "" for bucket root, "my-site/" for subdirectory).
+   *  Gallery files are published under {s3Prefix}galleries/ automatically. */
   s3Prefix: string;
   lastValidatedUser: string;
   lastValidatedAccount: string;
   lastValidatedArn: string;
   cloudFrontDistributionId: string;
+  schemaVersion: number;
 }
 
 export interface ValidationResult {
