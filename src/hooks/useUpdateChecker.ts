@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { getVersion } from "@tauri-apps/api/app";
 import { toast } from "sonner";
 
@@ -67,8 +68,7 @@ export function useUpdateChecker() {
         }
       });
 
-      // relaunch is handled by the plugin after install
-      // The app will restart automatically
+      await relaunch();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setStatus({ phase: "error", message });
