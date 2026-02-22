@@ -135,6 +135,7 @@ function makeInitialState(): WorkspaceState {
     selectedImageIndex: null,
     galleryDetails: null,
     galleryDetailsLastModified: null,
+    galleryCounts: {},
     subdirectories: [],
     currentDirImages: [],
     viewMode: "welcome",

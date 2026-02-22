@@ -44,8 +44,6 @@ export function GalleryInfoPane() {
     [addUntrackedGallery]
   );
 
-  const { resolveImagePath } = useWorkspace();
-
   return (
     <div className="w-80 min-w-80 h-full border-l border-border bg-background overflow-y-auto p-4">
       {selectedGallery ? (
@@ -71,27 +69,6 @@ export function GalleryInfoPane() {
             className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background mb-3 focus:outline-none focus:ring-1 focus:ring-ring"
           />
 
-          <label className="block text-xs text-muted-foreground mb-1">Cover</label>
-          <input
-            type="text"
-            value={selectedGallery.cover}
-            onChange={(e) => handleFieldChange("cover", e.target.value)}
-            onBlur={handleBlur}
-            className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background mb-2 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          {selectedGallery.cover && (
-            <div className="mb-3 rounded-md overflow-hidden border border-border aspect-[3/2]">
-              <img
-                src={resolveImagePath(selectedGallery.cover)}
-                alt="Cover preview"
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-            </div>
-          )}
-
           <label className="block text-xs text-muted-foreground mb-1">Slug</label>
           <p className="text-sm text-foreground/70 mb-4">{selectedGallery.slug}</p>
 
@@ -105,7 +82,7 @@ export function GalleryInfoPane() {
           <ConfirmDialog
             open={confirmDelete}
             title="Delete Gallery"
-            message={`Remove ${selectedGallery.name} from galleries.json? This will not delete files from disk.`}
+            message={`Delete "${selectedGallery.name}" from the list of galleries that will be published. This will not delete the files on disk.`}
             confirmLabel="Delete"
             onConfirm={handleDelete}
             onCancel={() => setConfirmDelete(false)}

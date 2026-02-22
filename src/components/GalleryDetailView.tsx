@@ -1,8 +1,9 @@
-import { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { GalleryHeader } from "./GalleryHeader";
 import { ImageTile } from "./ImageTile";
 import { ImageInfoPane } from "./ImageInfoPane";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   DndContext,
   closestCenter,
@@ -23,11 +24,13 @@ interface SortableImageTileProps {
   entry: PhotoEntry;
   index: number;
   isSelected: boolean;
+  isCover: boolean;
   onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
   id: string;
 }
 
-function SortableImageTile({ entry, index, isSelected, onClick, id }: SortableImageTileProps) {
+function SortableImageTile({ entry, index, isSelected, isCover, onClick, onContextMenu, id }: SortableImageTileProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
 
   const style = {
@@ -43,15 +46,19 @@ function SortableImageTile({ entry, index, isSelected, onClick, id }: SortableIm
         entry={entry}
         index={index}
         isSelected={isSelected}
+        isCover={isCover}
         onClick={onClick}
+        onContextMenu={onContextMenu}
       />
     </div>
   );
 }
 
 export function GalleryDetailView() {
-  const { state, dispatch, saveGalleryDetails } = useWorkspace();
+  const { state, dispatch, saveGalleries, saveGalleryDetails } = useWorkspace();
   const { galleryDetails, selectedImageIndex } = state;
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; index: number } | null>(null);
+  const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -95,6 +102,40 @@ export function GalleryDetailView() {
     [dispatch]
   );
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, index: number) => {
+      e.preventDefault();
+      dispatch({ type: "SELECT_IMAGE", index });
+      setContextMenu({ x: e.clientX, y: e.clientY, index });
+    },
+    [dispatch]
+  );
+
+  const handleSetCoverFromMenu = useCallback(() => {
+    if (!contextMenu || !galleryDetails) return;
+    const photo = galleryDetails.photos[contextMenu.index];
+    if (!photo) return;
+    const galleryIndex = state.galleries.findIndex((g) => g.slug === galleryDetails.slug);
+    if (galleryIndex >= 0) {
+      dispatch({ type: "UPDATE_GALLERY", index: galleryIndex, entry: { cover: `${galleryDetails.slug}/${photo.full}` } });
+      saveGalleries();
+    }
+    setContextMenu(null);
+  }, [contextMenu, galleryDetails, state.galleries, dispatch, saveGalleries]);
+
+  const handleDeleteFromMenu = useCallback(() => {
+    if (!contextMenu) return;
+    setConfirmDeleteIndex(contextMenu.index);
+    setContextMenu(null);
+  }, [contextMenu]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (confirmDeleteIndex === null) return;
+    dispatch({ type: "DELETE_PHOTO", index: confirmDeleteIndex });
+    setConfirmDeleteIndex(null);
+    setTimeout(() => saveGalleryDetails(), 50);
+  }, [confirmDeleteIndex, dispatch, saveGalleryDetails]);
+
   if (!galleryDetails) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -103,6 +144,7 @@ export function GalleryDetailView() {
     );
   }
 
+  const coverPath = state.galleries.find((g) => g.slug === galleryDetails.slug)?.cover ?? "";
   const items = galleryDetails.photos.map((_, i) => `image-${i}`);
 
   return (
@@ -131,7 +173,9 @@ export function GalleryDetailView() {
                     entry={entry}
                     index={i}
                     isSelected={selectedImageIndex === i}
+                    isCover={coverPath === `${galleryDetails.slug}/${entry.full}`}
                     onClick={() => handleTileClick(i)}
+                    onContextMenu={(e) => handleContextMenu(e, i)}
                   />
                 ))}
               </div>
@@ -145,6 +189,39 @@ export function GalleryDetailView() {
         </div>
       </div>
       <ImageInfoPane />
+
+      {contextMenu && (
+        <div className="fixed inset-0 z-40" onClick={() => setContextMenu(null)} />
+      )}
+      {contextMenu && (
+        <div
+          style={{ position: "fixed", top: contextMenu.y, left: contextMenu.x }}
+          className="z-50 bg-background border border-border rounded-md shadow-lg py-1 min-w-36 text-sm"
+        >
+          <button
+            onClick={handleSetCoverFromMenu}
+            className="w-full text-left px-3 py-1.5 hover:bg-muted transition-colors"
+          >
+            Set as Cover
+          </button>
+          <div className="border-t border-border my-1" />
+          <button
+            onClick={handleDeleteFromMenu}
+            className="w-full text-left px-3 py-1.5 text-destructive hover:bg-muted transition-colors"
+          >
+            Remove Image
+          </button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDeleteIndex !== null}
+        title="Remove Image"
+        message="Remove this image from the gallery metadata? The file will remain on disk."
+        confirmLabel="Remove"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmDeleteIndex(null)}
+      />
     </div>
   );
 }
