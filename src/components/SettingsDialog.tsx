@@ -27,11 +27,12 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [settings, setSettings] = useState<AppSettings>({
     bucket: "",
     region: "ap-southeast-2",
-    s3Prefix: "galleries/",
+    s3Prefix: "",
     lastValidatedUser: "",
     lastValidatedAccount: "",
     lastValidatedArn: "",
     cloudFrontDistributionId: "",
+    schemaVersion: 0,
   });
 
   const [keyId, setKeyId] = useState("");
@@ -302,14 +303,17 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               />
             </div>
             <div>
-              <label className="block text-sm mb-1">S3 Prefix</label>
+              <label className="block text-sm mb-1">S3 Root</label>
               <input
                 type="text"
                 value={settings.s3Prefix}
                 onChange={(e) => setSettings((s) => ({ ...s, s3Prefix: e.target.value }))}
-                placeholder="galleries/"
+                placeholder="my-site/"
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Root path in bucket (leave empty for bucket root, or enter <code>my-site/</code> for a subdirectory). Gallery files are published under <code>galleries/</code> automatically.
+              </p>
             </div>
             <div>
               <label className="block text-sm mb-1">CloudFront Distribution ID</label>

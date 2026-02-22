@@ -10,7 +10,7 @@ interface PublishPreviewDialogProps {
   folderPath: string;
   bucket: string;
   region: string;
-  prefix: string;
+  s3Root: string;
 }
 
 type DialogPhase =
@@ -27,7 +27,7 @@ export function PublishPreviewDialog({
   folderPath,
   bucket,
   region,
-  prefix,
+  s3Root,
 }: PublishPreviewDialogProps) {
   const [state, setState] = useState<DialogPhase>({ phase: "loading" });
   const [elapsed, setElapsed] = useState(0);
@@ -37,14 +37,14 @@ export function PublishPreviewDialog({
   const loadPreview = useCallback(async () => {
     setState({ phase: "loading" });
     try {
-      const plan = await publishPreview(folderPath, bucket, region, prefix);
+      const plan = await publishPreview(folderPath, bucket, region, s3Root);
       planIdRef.current = plan.planId;
       setState({ phase: "preview", plan });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setState({ phase: "error", message, file: "", uploaded: 0, deleted: 0, plan: { planId: "", toUpload: [], toDelete: [], unchanged: 0, totalFiles: 0 } });
     }
-  }, [folderPath, bucket, region, prefix]);
+  }, [folderPath, bucket, region, s3Root]);
 
   useEffect(() => {
     if (open) {

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+const SETTINGS_SCHEMA_VERSION: u32 = 1;
 const KEYRING_SERVICE: &str = "com.afterglow.manager";
 const KEYRING_KEY_ID: &str = "aws-access-key-id";
 const KEYRING_SECRET: &str = "aws-secret-access-key";
@@ -52,12 +53,16 @@ pub fn extract_bucket_name(input: &str) -> String {
 pub struct AppSettings {
     pub bucket: String,
     pub region: String,
+    /// S3 site root prefix (e.g. "" for bucket root, "my-site/" for subdirectory).
+    /// Gallery files are published under {s3_prefix}galleries/ automatically.
     pub s3_prefix: String,
     pub last_validated_user: String,
     pub last_validated_account: String,
     pub last_validated_arn: String,
     #[serde(default)]
     pub cloud_front_distribution_id: String,
+    #[serde(default)]
+    pub schema_version: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,12 +88,25 @@ pub async fn load_settings(app: tauri::AppHandle) -> Result<AppSettings, String>
     if !path.exists() {
         return Ok(AppSettings {
             region: "ap-southeast-2".to_string(),
-            s3_prefix: "galleries/".to_string(),
+            s3_prefix: "".to_string(),
+            schema_version: SETTINGS_SCHEMA_VERSION,
             ..Default::default()
         });
     }
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let settings: AppSettings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let mut settings: AppSettings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    // Migrate schema v0 → v1: s3_prefix was the galleries directory path;
+    // now it is the site root. Strip the trailing "galleries/" suffix.
+    if settings.schema_version == 0 {
+        if let Some(stripped) = settings.s3_prefix.strip_suffix("galleries/") {
+            settings.s3_prefix = stripped.to_string();
+        }
+        settings.schema_version = SETTINGS_SCHEMA_VERSION;
+        let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+        fs::write(&path, json).map_err(|e| e.to_string())?;
+    }
+
     Ok(settings)
 }
 
@@ -244,18 +262,20 @@ mod tests {
         let settings = AppSettings {
             bucket: "my-bucket".to_string(),
             region: "us-east-1".to_string(),
-            s3_prefix: "galleries/".to_string(),
+            s3_prefix: "".to_string(),
             last_validated_user: "AIDA123".to_string(),
             last_validated_account: "123456789012".to_string(),
             last_validated_arn: "arn:aws:iam::123456789012:user/test".to_string(),
             cloud_front_distribution_id: "".to_string(),
+            schema_version: 1,
         };
         let json = serde_json::to_string(&settings).unwrap();
         let parsed: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.bucket, "my-bucket");
         assert_eq!(parsed.region, "us-east-1");
-        assert_eq!(parsed.s3_prefix, "galleries/");
+        assert_eq!(parsed.s3_prefix, "");
         assert_eq!(parsed.last_validated_user, "AIDA123");
+        assert_eq!(parsed.schema_version, 1);
     }
 
     #[test]
@@ -272,6 +292,8 @@ mod tests {
         assert_eq!(settings.bucket, "test-bucket");
         assert_eq!(settings.s3_prefix, "photos/");
         assert_eq!(settings.last_validated_user, "USER");
+        // schema_version defaults to 0 when missing from JSON
+        assert_eq!(settings.schema_version, 0);
     }
 
     #[test]
@@ -280,6 +302,104 @@ mod tests {
         assert_eq!(settings.bucket, "");
         assert_eq!(settings.region, "");
         assert_eq!(settings.s3_prefix, "");
+        assert_eq!(settings.schema_version, 0);
+    }
+
+    #[test]
+    fn test_migration_v0_galleries_prefix() {
+        // v0 settings with s3_prefix = "galleries/" → migrates to ""
+        let json = r#"{
+            "bucket": "my-bucket",
+            "region": "us-east-1",
+            "s3Prefix": "galleries/",
+            "lastValidatedUser": "",
+            "lastValidatedAccount": "",
+            "lastValidatedArn": ""
+        }"#;
+        let mut settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.schema_version, 0);
+
+        // Simulate migration
+        if settings.schema_version == 0 {
+            if let Some(stripped) = settings.s3_prefix.strip_suffix("galleries/") {
+                settings.s3_prefix = stripped.to_string();
+            }
+            settings.schema_version = 1;
+        }
+
+        assert_eq!(settings.s3_prefix, "");
+        assert_eq!(settings.schema_version, 1);
+    }
+
+    #[test]
+    fn test_migration_v0_subdirectory_galleries_prefix() {
+        // v0 settings with s3_prefix = "my-site/galleries/" → migrates to "my-site/"
+        let json = r#"{
+            "bucket": "my-bucket",
+            "region": "us-east-1",
+            "s3Prefix": "my-site/galleries/",
+            "lastValidatedUser": "",
+            "lastValidatedAccount": "",
+            "lastValidatedArn": ""
+        }"#;
+        let mut settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.schema_version, 0);
+
+        // Simulate migration
+        if settings.schema_version == 0 {
+            if let Some(stripped) = settings.s3_prefix.strip_suffix("galleries/") {
+                settings.s3_prefix = stripped.to_string();
+            }
+            settings.schema_version = 1;
+        }
+
+        assert_eq!(settings.s3_prefix, "my-site/");
+        assert_eq!(settings.schema_version, 1);
+    }
+
+    #[test]
+    fn test_migration_v0_non_galleries_prefix_unchanged() {
+        // v0 settings with a non-"galleries/" prefix are not modified (just bumped to v1)
+        let json = r#"{
+            "bucket": "my-bucket",
+            "region": "us-east-1",
+            "s3Prefix": "photos/",
+            "lastValidatedUser": "",
+            "lastValidatedAccount": "",
+            "lastValidatedArn": ""
+        }"#;
+        let mut settings: AppSettings = serde_json::from_str(json).unwrap();
+
+        // Simulate migration
+        if settings.schema_version == 0 {
+            if let Some(stripped) = settings.s3_prefix.strip_suffix("galleries/") {
+                settings.s3_prefix = stripped.to_string();
+            }
+            settings.schema_version = 1;
+        }
+
+        assert_eq!(settings.s3_prefix, "photos/");
+        assert_eq!(settings.schema_version, 1);
+    }
+
+    #[test]
+    fn test_migration_v1_not_re_migrated() {
+        // v1 settings are not modified
+        let json = r#"{
+            "bucket": "my-bucket",
+            "region": "us-east-1",
+            "s3Prefix": "",
+            "lastValidatedUser": "",
+            "lastValidatedAccount": "",
+            "lastValidatedArn": "",
+            "schemaVersion": 1
+        }"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.schema_version, 1);
+        assert_eq!(settings.s3_prefix, "");
+        // schema_version == 1 means no migration needed
+        let would_migrate = settings.schema_version == 0;
+        assert!(!would_migrate);
     }
 
     #[test]

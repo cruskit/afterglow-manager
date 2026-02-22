@@ -21,7 +21,11 @@ fn is_syncable_file(path: &Path) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
-    IMAGE_EXTENSIONS.contains(&ext.as_str()) || ext == "json"
+    IMAGE_EXTENSIONS.contains(&ext.as_str())
+        || ext == "json"
+        || ext == "html"
+        || ext == "css"
+        || ext == "js"
 }
 
 fn content_type_for_extension(path: &Path) -> &'static str {
@@ -39,6 +43,9 @@ fn content_type_for_extension(path: &Path) -> &'static str {
         "bmp" => "image/bmp",
         "tiff" | "tif" => "image/tiff",
         "json" => "application/json",
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css",
+        "js" => "application/javascript",
         _ => "application/octet-stream",
     }
 }
@@ -167,6 +174,38 @@ fn collect_referenced_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(result)
 }
 
+// Website source files embedded at compile time so they work in dev and production alike.
+const WEBSITE_INDEX_HTML: &[u8] = include_bytes!("../../afterglow-website/index.html");
+const WEBSITE_STYLES_CSS: &[u8] = include_bytes!("../../afterglow-website/afterglow/css/styles.css");
+const WEBSITE_APP_JS: &[u8] = include_bytes!("../../afterglow-website/afterglow/js/app.js");
+
+/// Write the embedded website files to a temporary directory and return
+/// (local_path, s3_key) pairs for the three files:
+///   - index.html at the site root
+///   - afterglow/css/styles.css
+///   - afterglow/js/app.js
+fn collect_website_files(s3_root: &str) -> Result<Vec<(PathBuf, String)>, String> {
+    let tmp = std::env::temp_dir().join("afterglow-manager-website");
+    let css_dir = tmp.join("afterglow").join("css");
+    let js_dir = tmp.join("afterglow").join("js");
+    fs::create_dir_all(&css_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    fs::create_dir_all(&js_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    let entries = [
+        (WEBSITE_INDEX_HTML, tmp.join("index.html"), format!("{}index.html", s3_root)),
+        (WEBSITE_STYLES_CSS, css_dir.join("styles.css"), format!("{}afterglow/css/styles.css", s3_root)),
+        (WEBSITE_APP_JS, js_dir.join("app.js"), format!("{}afterglow/js/app.js", s3_root)),
+    ];
+
+    let mut result = Vec::new();
+    for (data, path, s3_key) in &entries {
+        fs::write(path, data).map_err(|e| format!("Failed to write temp website file: {}", e))?;
+        result.push((path.clone(), s3_key.clone()));
+    }
+
+    Ok(result)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncFile {
@@ -230,7 +269,7 @@ pub async fn publish_preview(
     folder_path: String,
     bucket: String,
     region: String,
-    prefix: String,
+    s3_root: String,
 ) -> Result<PublishPlan, String> {
     let (key_id, secret) = get_credentials_from_keychain()?;
 
@@ -246,33 +285,43 @@ pub async fn publish_preview(
 
     let bucket = extract_bucket_name(&bucket);
     let root = PathBuf::from(&folder_path);
-    let local_files = collect_referenced_files(&root)?;
 
-    // Ensure prefix ends with /
-    let prefix = if prefix.ends_with('/') {
-        prefix
+    // Normalise s3_root: must be empty or end with /
+    let s3_root = if s3_root.is_empty() || s3_root.ends_with('/') {
+        s3_root
     } else {
-        format!("{}/", prefix)
+        format!("{}/", s3_root)
     };
 
     // Build local file map: s3_key -> (local_path, md5)
     let mut local_map: HashMap<String, (PathBuf, String)> = HashMap::new();
-    for file_path in &local_files {
+
+    // Gallery files go under {s3_root}galleries/
+    let gallery_files = collect_referenced_files(&root)?;
+    let galleries_prefix = format!("{}galleries/", s3_root);
+    for file_path in &gallery_files {
         let relative = file_path
             .strip_prefix(&root)
             .map_err(|e| e.to_string())?
             .to_string_lossy()
             .replace('\\', "/");
-        let s3_key = format!("{}{}", prefix, relative);
+        let s3_key = format!("{}{}", galleries_prefix, relative);
         let md5 = compute_md5(file_path)?;
         local_map.insert(s3_key, (file_path.clone(), md5));
     }
 
-    // List all S3 objects under prefix
+    // Website files go at {s3_root}index.html, {s3_root}afterglow/...
+    let website_files = collect_website_files(&s3_root)?;
+    for (file_path, s3_key) in &website_files {
+        let md5 = compute_md5(file_path)?;
+        local_map.insert(s3_key.clone(), (file_path.clone(), md5));
+    }
+
+    // List all S3 objects under s3_root
     let mut s3_objects: HashMap<String, String> = HashMap::new(); // key -> etag
     let mut continuation_token: Option<String> = None;
     loop {
-        let mut req = s3_client.list_objects_v2().bucket(&bucket).prefix(&prefix);
+        let mut req = s3_client.list_objects_v2().bucket(&bucket).prefix(&s3_root);
         if let Some(token) = &continuation_token {
             req = req.continuation_token(token);
         }
@@ -320,10 +369,18 @@ pub async fn publish_preview(
         });
     }
 
-    // Files to delete: in S3 but not local
+    // Files to delete: in S3 but not in local map, restricted to managed areas only.
+    // We only manage: {s3_root}galleries/*, {s3_root}afterglow/*, {s3_root}index.html
+    let afterglow_prefix = format!("{}afterglow/", s3_root);
+    let index_key = format!("{}index.html", s3_root);
     let to_delete: Vec<String> = s3_objects
         .keys()
-        .filter(|key| key.starts_with(&prefix) && !local_map.contains_key(*key))
+        .filter(|key| {
+            !local_map.contains_key(*key)
+                && (key.starts_with(&galleries_prefix)
+                    || key.starts_with(&afterglow_prefix)
+                    || **key == index_key)
+        })
         .cloned()
         .collect();
 
@@ -445,16 +502,18 @@ pub async fn publish_execute(app: tauri::AppHandle, plan_id: String) -> Result<(
     }
 
     // Delete files
-    // Read prefix from settings for safety check
-    let prefix = if settings.s3_prefix.ends_with('/') {
-        settings.s3_prefix.clone()
-    } else {
-        format!("{}/", settings.s3_prefix)
-    };
+    // Safety: only delete keys in the managed areas (galleries/, afterglow/, index.html)
+    let s3_root = &settings.s3_prefix;
+    let galleries_prefix = format!("{}galleries/", s3_root);
+    let afterglow_prefix = format!("{}afterglow/", s3_root);
+    let index_key = format!("{}index.html", s3_root);
 
     for s3_key in &plan.to_delete {
-        // Safety: only delete keys under configured prefix
-        if !s3_key.starts_with(&prefix) {
+        // Safety: only delete keys within managed areas
+        if !s3_key.starts_with(&galleries_prefix)
+            && !s3_key.starts_with(&afterglow_prefix)
+            && s3_key.as_str() != index_key.as_str()
+        {
             continue;
         }
 
@@ -524,7 +583,7 @@ pub async fn publish_execute(app: tauri::AppHandle, plan_id: String) -> Result<(
             .build();
         let cf_client = aws_sdk_cloudfront::Client::from_conf(cf_config);
 
-        let invalidation_path = format!("/{}*", prefix);
+        let invalidation_path = format!("/{}*", s3_root);
         let invalidation_result = tokio::time::timeout(
             std::time::Duration::from_secs(30),
             cf_client
@@ -616,6 +675,9 @@ mod tests {
         assert_eq!(content_type_for_extension(Path::new("photo.tiff")), "image/tiff");
         assert_eq!(content_type_for_extension(Path::new("photo.tif")), "image/tiff");
         assert_eq!(content_type_for_extension(Path::new("data.json")), "application/json");
+        assert_eq!(content_type_for_extension(Path::new("index.html")), "text/html; charset=utf-8");
+        assert_eq!(content_type_for_extension(Path::new("styles.css")), "text/css");
+        assert_eq!(content_type_for_extension(Path::new("app.js")), "application/javascript");
         assert_eq!(content_type_for_extension(Path::new("file.xyz")), "application/octet-stream");
     }
 
@@ -625,6 +687,9 @@ mod tests {
         assert!(is_syncable_file(Path::new("photo.JPEG")));
         assert!(is_syncable_file(Path::new("photo.png")));
         assert!(is_syncable_file(Path::new("data.json")));
+        assert!(is_syncable_file(Path::new("index.html")));
+        assert!(is_syncable_file(Path::new("styles.css")));
+        assert!(is_syncable_file(Path::new("app.js")));
         assert!(!is_syncable_file(Path::new(".DS_Store")));
         assert!(!is_syncable_file(Path::new("readme.txt")));
         assert!(!is_syncable_file(Path::new("file.md")));
@@ -632,7 +697,8 @@ mod tests {
     }
 
     #[test]
-    fn test_s3_key_construction() {
+    fn test_s3_key_construction_gallery_files() {
+        // Gallery files go under {s3_root}galleries/{relative}
         let root = PathBuf::from("/workspace/galleries");
         let file = root.join("coastal-sunset/01.jpg");
         let relative = file
@@ -640,18 +706,57 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let prefix = "galleries/";
-        let s3_key = format!("{}{}", prefix, relative);
+
+        // Bucket root (s3_root = "")
+        let s3_key = format!("galleries/{}", relative);
         assert_eq!(s3_key, "galleries/coastal-sunset/01.jpg");
+
+        // Subdirectory (s3_root = "my-site/")
+        let s3_key = format!("my-site/galleries/{}", relative);
+        assert_eq!(s3_key, "my-site/galleries/coastal-sunset/01.jpg");
     }
 
     #[test]
-    fn test_prefix_safety_check() {
-        let prefix = "galleries/";
-        let key_in_prefix = "galleries/coastal-sunset/01.jpg";
-        let key_outside = "other/file.jpg";
-        assert!(key_in_prefix.starts_with(prefix));
-        assert!(!key_outside.starts_with(prefix));
+    fn test_managed_area_safety_check() {
+        // Managed areas: galleries/, afterglow/, index.html
+        let s3_root = "";
+        let galleries_prefix = format!("{}galleries/", s3_root);
+        let afterglow_prefix = format!("{}afterglow/", s3_root);
+        let index_key = format!("{}index.html", s3_root);
+
+        let is_managed = |key: &str| -> bool {
+            key.starts_with(&galleries_prefix)
+                || key.starts_with(&afterglow_prefix)
+                || key == index_key.as_str()
+        };
+
+        assert!(is_managed("galleries/coastal-sunset/01.jpg"));
+        assert!(is_managed("galleries/galleries.json"));
+        assert!(is_managed("afterglow/css/styles.css"));
+        assert!(is_managed("afterglow/js/app.js"));
+        assert!(is_managed("index.html"));
+        assert!(!is_managed("other/file.jpg"));
+        assert!(!is_managed("index.html.bak"));
+    }
+
+    #[test]
+    fn test_managed_area_safety_check_with_s3_root() {
+        let s3_root = "my-site/";
+        let galleries_prefix = format!("{}galleries/", s3_root);
+        let afterglow_prefix = format!("{}afterglow/", s3_root);
+        let index_key = format!("{}index.html", s3_root);
+
+        let is_managed = |key: &str| -> bool {
+            key.starts_with(&galleries_prefix)
+                || key.starts_with(&afterglow_prefix)
+                || key == index_key.as_str()
+        };
+
+        assert!(is_managed("my-site/galleries/photo.jpg"));
+        assert!(is_managed("my-site/afterglow/css/styles.css"));
+        assert!(is_managed("my-site/index.html"));
+        assert!(!is_managed("galleries/photo.jpg")); // wrong root
+        assert!(!is_managed("other-site/index.html"));
     }
 
     #[test]
@@ -938,6 +1043,45 @@ mod tests {
         // galleries.json + 2 gallery-details + 2 images = 5
         assert_eq!(result.len(), 5);
         assert!(!result.contains(&root.join("c/img.jpg")));
+    }
+
+    // --- collect_website_files tests ---
+
+    #[test]
+    fn test_collect_website_files_bucket_root() {
+        // Files are embedded at compile time; just verify s3 keys and that paths exist after collection.
+        let files = collect_website_files("").unwrap();
+        assert_eq!(files.len(), 3);
+
+        let s3_keys: Vec<&str> = files.iter().map(|(_, k)| k.as_str()).collect();
+        assert!(s3_keys.contains(&"index.html"));
+        assert!(s3_keys.contains(&"afterglow/css/styles.css"));
+        assert!(s3_keys.contains(&"afterglow/js/app.js"));
+
+        for (path, _) in &files {
+            assert!(path.exists(), "temp file should exist: {}", path.display());
+        }
+    }
+
+    #[test]
+    fn test_collect_website_files_with_s3_root() {
+        let files = collect_website_files("my-site/").unwrap();
+        assert_eq!(files.len(), 3);
+
+        let s3_keys: Vec<&str> = files.iter().map(|(_, k)| k.as_str()).collect();
+        assert!(s3_keys.contains(&"my-site/index.html"));
+        assert!(s3_keys.contains(&"my-site/afterglow/css/styles.css"));
+        assert!(s3_keys.contains(&"my-site/afterglow/js/app.js"));
+    }
+
+    #[test]
+    fn test_website_index_html_has_updated_asset_paths() {
+        // Verify the bundled index.html references afterglow/css/... not css/... directly
+        let html = std::str::from_utf8(WEBSITE_INDEX_HTML).unwrap();
+        assert!(html.contains("afterglow/css/styles.css"), "index.html should reference afterglow/css/styles.css");
+        assert!(html.contains("afterglow/js/app.js"), "index.html should reference afterglow/js/app.js");
+        assert!(!html.contains("href=\"css/"), "index.html should not have old css/ reference");
+        assert!(!html.contains("src=\"js/"), "index.html should not have old js/ reference");
     }
 
     #[test]

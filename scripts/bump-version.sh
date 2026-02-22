@@ -9,10 +9,11 @@
 #   ./scripts/bump-version.sh 1.2.0
 #
 # Updates:
-#   - package.json         (version field)
+#   - package.json              (version field)
 #   - src-tauri/tauri.conf.json (version field)
 #   - src-tauri/Cargo.toml      (version field under [package])
 #   - src-tauri/Cargo.lock      (regenerated)
+#   - afterglow-website/index.html (AfterGlow vX.Y.Z in footer)
 
 set -euo pipefail
 
@@ -61,8 +62,24 @@ echo "tauri.conf.json: $OLD_TAURI -> $NEW_VERSION"
 # --- Cargo.toml ---
 CARGO_TOML="$REPO_ROOT/src-tauri/Cargo.toml"
 OLD_CARGO=$(grep '^version' "$CARGO_TOML" | head -1 | sed 's/.*"\(.*\)"/\1/')
-sed -i "0,/^version = \".*\"/s//version = \"$NEW_VERSION\"/" "$CARGO_TOML"
+node -e "
+  const fs = require('fs');
+  const content = fs.readFileSync('$CARGO_TOML', 'utf8');
+  const updated = content.replace(/^version = \".*\"/m, 'version = \"$NEW_VERSION\"');
+  fs.writeFileSync('$CARGO_TOML', updated);
+"
 echo "Cargo.toml: $OLD_CARGO -> $NEW_VERSION"
+
+# --- afterglow-website/index.html ---
+WEBSITE_HTML="$REPO_ROOT/afterglow-website/index.html"
+OLD_WEB=$(grep -oE 'AfterGlow v[0-9]+\.[0-9]+\.[0-9]+' "$WEBSITE_HTML" || echo "not found")
+node -e "
+  const fs = require('fs');
+  const content = fs.readFileSync('$WEBSITE_HTML', 'utf8');
+  const updated = content.replace(/AfterGlow v[0-9]+\.[0-9]+\.[0-9]+/, 'AfterGlow v$NEW_VERSION');
+  fs.writeFileSync('$WEBSITE_HTML', updated);
+"
+echo "afterglow-website/index.html: $OLD_WEB -> AfterGlow v$NEW_VERSION"
 
 # --- Cargo.lock ---
 if command -v cargo &> /dev/null; then

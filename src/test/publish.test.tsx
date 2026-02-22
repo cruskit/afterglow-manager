@@ -150,7 +150,8 @@ describe("SettingsDialog", () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText("my-gallery-bucket")).toBeInTheDocument();
       expect(screen.getByPlaceholderText("us-east-1")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText("galleries/")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("my-site/")).toBeInTheDocument();
+      expect(screen.getByText("S3 Root")).toBeInTheDocument();
     });
   });
 
@@ -260,7 +261,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
     expect(container.innerHTML).toBe("");
@@ -275,7 +276,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
     expect(screen.getByText("Publish to S3")).toBeInTheDocument();
@@ -305,7 +306,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
 
@@ -340,7 +341,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
 
@@ -365,7 +366,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
 
@@ -397,7 +398,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
 
@@ -437,7 +438,7 @@ describe("PublishPreviewDialog", () => {
         folderPath="/test"
         bucket="bucket"
         region="us-east-1"
-        prefix="galleries/"
+        s3Root="galleries/"
       />
     );
 
