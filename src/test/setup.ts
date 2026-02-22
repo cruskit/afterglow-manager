@@ -26,3 +26,8 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn(() => Promise.resolve("1.2.0")),
 }));
+
+// Mock @tauri-apps/plugin-process
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn(() => Promise.resolve()),
+}));
