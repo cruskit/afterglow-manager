@@ -15,6 +15,7 @@ export function useUpdateChecker() {
   const [status, setStatus] = useState<UpdateStatus>({ phase: "idle" });
   const [currentVersion, setCurrentVersion] = useState<string>("");
   const checkedRef = useRef(false);
+  const downloadAndInstallRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     getVersion().then(setCurrentVersion).catch(() => {});
@@ -28,8 +29,12 @@ export function useUpdateChecker() {
         setStatus({ phase: "available", update, version: update.version });
         if (silent) {
           toast.info(`Update available: v${update.version}`, {
-            description: "Open Settings to download and install.",
+            description: "Ready to download and install.",
             duration: 10000,
+            action: {
+              label: "Update Now",
+              onClick: () => downloadAndInstallRef.current(),
+            },
           });
         }
       } else {
@@ -75,6 +80,11 @@ export function useUpdateChecker() {
       toast.error(`Update failed: ${message}`);
     }
   }, [status]);
+
+  // Keep ref up to date so the toast action always calls the latest callback
+  useEffect(() => {
+    downloadAndInstallRef.current = downloadAndInstall;
+  }, [downloadAndInstall]);
 
   // Auto-check on startup with 3s delay
   useEffect(() => {
