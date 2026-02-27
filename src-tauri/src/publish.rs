@@ -43,6 +43,7 @@ fn content_type_for_extension(path: &Path) -> &'static str {
         "avif" => "image/avif",
         "bmp" => "image/bmp",
         "tiff" | "tif" => "image/tiff",
+        "ico" => "image/x-icon",
         "json" => "application/json",
         "html" => "text/html; charset=utf-8",
         "css" => "text/css",
@@ -179,12 +180,16 @@ fn collect_referenced_files(root: &Path) -> Result<Vec<PathBuf>, String> {
 const WEBSITE_INDEX_HTML: &[u8] = include_bytes!("../../afterglow-website/index.html");
 const WEBSITE_STYLES_CSS: &[u8] = include_bytes!("../../afterglow-website/afterglow/css/styles.css");
 const WEBSITE_APP_JS: &[u8] = include_bytes!("../../afterglow-website/afterglow/js/app.js");
+const WEBSITE_FAVICON_ICO: &[u8] = include_bytes!("../../afterglow-website/favicon.ico");
+const WEBSITE_FAVICON_PNG: &[u8] = include_bytes!("../../afterglow-website/favicon.png");
 
 /// Write the embedded website files to a temporary directory and return
-/// (local_path, s3_key) pairs for the three files:
+/// (local_path, s3_key) pairs for the five files:
 ///   - index.html at the site root
 ///   - afterglow/css/styles.css
 ///   - afterglow/js/app.js
+///   - favicon.ico
+///   - favicon.png
 fn collect_website_files(s3_root: &str) -> Result<Vec<(PathBuf, String)>, String> {
     let tmp = std::env::temp_dir().join("afterglow-manager-website");
     let css_dir = tmp.join("afterglow").join("css");
@@ -196,6 +201,8 @@ fn collect_website_files(s3_root: &str) -> Result<Vec<(PathBuf, String)>, String
         (WEBSITE_INDEX_HTML, tmp.join("index.html"), format!("{}index.html", s3_root)),
         (WEBSITE_STYLES_CSS, css_dir.join("styles.css"), format!("{}afterglow/css/styles.css", s3_root)),
         (WEBSITE_APP_JS, js_dir.join("app.js"), format!("{}afterglow/js/app.js", s3_root)),
+        (WEBSITE_FAVICON_ICO, tmp.join("favicon.ico"), format!("{}favicon.ico", s3_root)),
+        (WEBSITE_FAVICON_PNG, tmp.join("favicon.png"), format!("{}favicon.png", s3_root)),
     ];
 
     let mut result = Vec::new();
@@ -708,16 +715,20 @@ pub async fn publish_preview(
     }
 
     // Files to delete: in S3 but not in local map, restricted to managed areas only.
-    // We only manage: {s3_root}galleries/*, {s3_root}afterglow/*, {s3_root}index.html
+    // We only manage: {s3_root}galleries/*, {s3_root}afterglow/*, {s3_root}index.html, {s3_root}favicon.*
     let afterglow_prefix = format!("{}afterglow/", s3_root);
     let index_key = format!("{}index.html", s3_root);
+    let favicon_ico_key = format!("{}favicon.ico", s3_root);
+    let favicon_png_key = format!("{}favicon.png", s3_root);
     let to_delete: Vec<String> = s3_objects
         .keys()
         .filter(|key| {
             !local_map.contains_key(*key)
                 && (key.starts_with(&galleries_prefix)
                     || key.starts_with(&afterglow_prefix)
-                    || **key == index_key)
+                    || **key == index_key
+                    || **key == favicon_ico_key
+                    || **key == favicon_png_key)
         })
         .cloned()
         .collect();
