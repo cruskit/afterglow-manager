@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Loader2, Upload, Trash2, CheckCircle, AlertCircle } from "lucide-react";
-import type { PublishPlan, PublishProgress, PublishResult, PublishError } from "../types";
+import type { PublishPlan, PublishProgress, PublishResult, PublishError, ThumbnailProgress } from "../types";
 import { publishPreview, publishExecute, publishCancel } from "../commands";
 
 interface PublishPreviewDialogProps {
@@ -14,7 +14,7 @@ interface PublishPreviewDialogProps {
 }
 
 type DialogPhase =
-  | { phase: "loading" }
+  | { phase: "loading"; status: "thumbnails" | "scanning" }
   | { phase: "preview"; plan: PublishPlan }
   | { phase: "publishing"; plan: PublishPlan; progress: PublishProgress | null; startTime: number }
   | { phase: "complete"; result: PublishResult }
@@ -29,13 +29,13 @@ export function PublishPreviewDialog({
   region,
   s3Root,
 }: PublishPreviewDialogProps) {
-  const [state, setState] = useState<DialogPhase>({ phase: "loading" });
+  const [state, setState] = useState<DialogPhase>({ phase: "loading", status: "thumbnails" });
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const planIdRef = useRef<string | null>(null);
 
   const loadPreview = useCallback(async () => {
-    setState({ phase: "loading" });
+    setState({ phase: "loading", status: "thumbnails" });
     try {
       const plan = await publishPreview(folderPath, bucket, region, s3Root);
       planIdRef.current = plan.planId;
@@ -57,6 +57,13 @@ export function PublishPreviewDialog({
 
   useEffect(() => {
     if (!open) return;
+
+    const unlistenThumbnails = listen<ThumbnailProgress>("publish-thumbnail-progress", () => {
+      setState((prev) => {
+        if (prev.phase !== "loading") return prev;
+        return { phase: "loading", status: "scanning" };
+      });
+    });
 
     const unlistenProgress = listen<PublishProgress>("publish-progress", (event) => {
       setState((prev) => {
@@ -87,6 +94,7 @@ export function PublishPreviewDialog({
     });
 
     return () => {
+      unlistenThumbnails.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
       unlistenError.then((fn) => fn());
@@ -160,7 +168,9 @@ export function PublishPreviewDialog({
         {state.phase === "loading" && (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">Scanning files...</span>
+            <span className="ml-2 text-sm text-muted-foreground">
+              {state.status === "thumbnails" ? "Generating thumbnails..." : "Scanning files..."}
+            </span>
           </div>
         )}
 

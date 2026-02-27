@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { renderWithProviders } from "./test-utils";
 import { SettingsDialog } from "../components/SettingsDialog";
 import { PublishPreviewDialog } from "../components/PublishPreviewDialog";
+import { listen } from "@tauri-apps/api/event";
 
 // Mock invoke for all tests
 const mockInvoke = vi.fn();
@@ -11,12 +12,22 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: vi.fn((path: string) => `asset://localhost/${encodeURIComponent(path)}`),
 }));
 
+// Event listener capture map — populated by the listen mock below
+const { eventHandlers } = vi.hoisted(() => ({
+  eventHandlers: new Map<string, (...args: unknown[]) => void>(),
+}));
+
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+    eventHandlers.set(event, handler);
+    return Promise.resolve(() => {});
+  }),
 }));
 
 beforeEach(() => {
   mockInvoke.mockReset();
+  eventHandlers.clear();
+  vi.mocked(listen).mockClear();
 });
 
 describe("SettingsDialog", () => {
@@ -267,7 +278,7 @@ describe("PublishPreviewDialog", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("shows loading state when opening", () => {
+  it("shows thumbnails loading state when opening", () => {
     mockInvoke.mockReturnValue(new Promise(() => {})); // Never resolves
     renderWithProviders(
       <PublishPreviewDialog
@@ -280,6 +291,30 @@ describe("PublishPreviewDialog", () => {
       />
     );
     expect(screen.getByText("Publish to S3")).toBeInTheDocument();
+    expect(screen.getByText("Generating thumbnails...")).toBeInTheDocument();
+  });
+
+  it("transitions to scanning state after thumbnail-progress event", async () => {
+    mockInvoke.mockReturnValue(new Promise(() => {})); // Never resolves
+    renderWithProviders(
+      <PublishPreviewDialog
+        open={true}
+        onClose={() => {}}
+        folderPath="/test"
+        bucket="bucket"
+        region="us-east-1"
+        s3Root="galleries/"
+      />
+    );
+
+    expect(screen.getByText("Generating thumbnails...")).toBeInTheDocument();
+
+    await act(async () => {
+      eventHandlers.get("publish-thumbnail-progress")?.({
+        payload: { generated: 3, skipped: 2, errors: 0 },
+      });
+    });
+
     expect(screen.getByText("Scanning files...")).toBeInTheDocument();
   });
 

@@ -121,6 +121,12 @@ export interface PublishError {
   file: string;
 }
 
+export interface ThumbnailProgress {
+  generated: number;
+  skipped: number;
+  errors: number;
+}
+
 export type WorkspaceAction =
   | { type: "SET_FOLDER"; path: string; name: string }
   | { type: "SET_GALLERIES"; galleries: GalleriesJson; lastModified: number | null }

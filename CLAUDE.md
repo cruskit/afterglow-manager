@@ -46,7 +46,8 @@ npm run tauri build
 **Key Rust modules:**
 - `lib.rs` — IPC command registration and all `#[tauri::command]` handlers
 - `settings.rs` — AppSettings persistence (JSON file + OS keychain), AWS credential validation via STS
-- `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Syncs gallery data files (reachable from `galleries.json`) plus the bundled website assets from `s3Root` (the `afterglow-website/` directory). Also generates and publishes `galleries/search-index.json` at publish time.
+- `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Syncs gallery data files (reachable from `galleries.json`) plus the bundled website assets from `s3Root` (the `afterglow-website/` directory). Also generates and publishes `galleries/search-index.json` at publish time. At publish time, generates WebP thumbnails and rewrites JSON paths (see Thumbnail Generation below).
+- `thumbnails.rs` — Thumbnail generation: `build_thumbnail_specs`, `ensure_thumbnails`, `generate_thumbnail`, `is_thumbnail_fresh`. Invoked from `publish_preview`.
 
 **Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open).
 
@@ -67,7 +68,23 @@ Frontend tests use Vitest + React Testing Library with Tauri API mocks defined i
 - `publish.test.tsx` — settings dialog and publish preview
 - `App.test.tsx` — app-level routing
 
-Rust unit tests are inline in `settings.rs` and `publish.rs`.
+Rust unit tests are inline in `settings.rs`, `publish.rs`, and `thumbnails.rs`.
+
+## Thumbnail Generation (v1.7.0+)
+
+At publish time, `publish_preview` generates WebP thumbnails for all referenced images:
+
+- **Local cache**: `{workspace}/.data/thumbnails/{slug}/{stem}.webp`
+- **Staleness check**: thumbnail is regenerated if source mtime > thumbnail mtime (or thumbnail missing)
+- **Format**: WebP, 85% quality, max 1600 px on longest side (Lanczos3 downscale only)
+- **S3 path**: `galleries/{slug}/.thumbs/{stem}.webp`
+- **JSON rewriting** (publish-time only, local files unchanged):
+  - `galleries.json` cover field: `"sunset/01.jpg"` → `"sunset/.thumbs/01.webp"`
+  - `gallery-details.json` thumbnail field: `"01.jpg"` → `".thumbs/01.webp"` (full field unchanged)
+  - `search-index.json` photo thumbnail field: same rewriting
+- **No website JS changes needed**: `app.js` already constructs image URLs from the JSON `thumbnail` field
+- **AVIF excluded**: the `image` crate's `avif` feature requires native system libs; AVIF source images fail gracefully (non-fatal error, original published instead)
+- **UI**: `PublishPreviewDialog` shows "Generating thumbnails..." → "Scanning files..." as it progresses
 
 ## Conventions
 

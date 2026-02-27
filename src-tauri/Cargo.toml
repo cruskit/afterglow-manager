@@ -1,6 +1,6 @@
 [package]
 name = "afterglow-manager"
-version = "1.6.1"
+version = "1.7.0"
 description = "A desktop app for managing AfterGlow gallery metadata"
 authors = ["you"]
 edition = "2021"
@@ -29,6 +29,8 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
+webp = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
