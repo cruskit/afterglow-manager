@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { UntrackedList } from "./UntrackedList";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TagInput } from "./TagInput";
 
 export function ImageInfoPane() {
   const {
@@ -13,7 +14,7 @@ export function ImageInfoPane() {
     saveGalleryDetails,
     saveGalleries,
   } = useWorkspace();
-  const { galleryDetails, selectedImageIndex, currentDirImages } = state;
+  const { galleryDetails, selectedImageIndex, currentDirImages, knownTags } = state;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const altInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,6 +43,15 @@ export function ImageInfoPane() {
       dispatch({ type: "UPDATE_PHOTO", index: selectedImageIndex, entry: { [field]: value } });
     },
     [selectedImageIndex, dispatch]
+  );
+
+  const handleTagsChange = useCallback(
+    (tags: string[]) => {
+      if (selectedImageIndex === null) return;
+      dispatch({ type: "UPDATE_PHOTO", index: selectedImageIndex, entry: { tags } });
+      debouncedSaveGalleryDetails();
+    },
+    [selectedImageIndex, dispatch, debouncedSaveGalleryDetails]
   );
 
   const handleBlur = useCallback(() => {
@@ -88,6 +98,15 @@ export function ImageInfoPane() {
             onBlur={handleBlur}
             className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background mb-3 focus:outline-none focus:ring-1 focus:ring-ring"
           />
+
+          <label className="block text-xs text-muted-foreground mb-1">Tags</label>
+          <div className="mb-3">
+            <TagInput
+              tags={selectedPhoto.tags ?? []}
+              knownTags={knownTags}
+              onChange={handleTagsChange}
+            />
+          </div>
 
           <button
             onClick={handleSetAsCover}

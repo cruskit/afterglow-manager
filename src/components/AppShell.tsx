@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { getAllTags } from "../commands";
 import { TreeView } from "./TreeView";
 import { GalleriesView } from "./GalleriesView";
 import { GalleryDetailView } from "./GalleryDetailView";
@@ -14,8 +15,11 @@ export function AppShell() {
     if (state.folderPath) {
       loadGalleries();
       loadSubdirectories();
+      getAllTags(state.folderPath)
+        .then((tags) => dispatch({ type: "SET_KNOWN_TAGS", tags }))
+        .catch(() => {});
     }
-  }, [state.folderPath, loadGalleries, loadSubdirectories]);
+  }, [state.folderPath, loadGalleries, loadSubdirectories, dispatch]);
 
   // Load gallery details when a subdirectory is selected
   useEffect(() => {

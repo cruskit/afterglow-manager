@@ -50,6 +50,16 @@ describe("migrateGalleries", () => {
       `galleries.json has schema version 999, but this app only supports up to ${CURRENT_GALLERIES_SCHEMA}`
     );
   });
+
+  it("preserves tags on round-trip (no migration needed)", () => {
+    const current = {
+      schemaVersion: 1,
+      galleries: [{ name: "A", slug: "a", date: "", cover: "", tags: ["landscape", "nature"] }],
+    };
+    const { data, migrated } = migrateGalleries(current);
+    expect(migrated).toBe(false);
+    expect(data.galleries[0].tags).toEqual(["landscape", "nature"]);
+  });
 });
 
 describe("migrateGalleryDetails", () => {
@@ -100,5 +110,19 @@ describe("migrateGalleryDetails", () => {
     expect(() => migrateGalleryDetails("not an object")).toThrow(
       "gallery-details.json is not a valid object"
     );
+  });
+
+  it("preserves photo tags on round-trip (no migration needed)", () => {
+    const current = {
+      schemaVersion: 1,
+      name: "Sunset",
+      slug: "sunset",
+      date: "Feb 2026",
+      description: "",
+      photos: [{ thumbnail: "01.jpg", full: "01.jpg", alt: "01", tags: ["sunset", "golden-hour"] }],
+    };
+    const { data, migrated } = migrateGalleryDetails(current);
+    expect(migrated).toBe(false);
+    expect(data.photos[0].tags).toEqual(["sunset", "golden-hour"]);
   });
 });

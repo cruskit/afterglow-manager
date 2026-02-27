@@ -2,10 +2,11 @@ import { useCallback, useRef, useState } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { UntrackedList } from "./UntrackedList";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { TagInput } from "./TagInput";
 
 export function GalleryInfoPane() {
   const { state, dispatch, debouncedSaveGalleries, addUntrackedGallery, saveGalleries } = useWorkspace();
-  const { galleries, selectedGalleryIndex, subdirectories } = state;
+  const { galleries, selectedGalleryIndex, subdirectories, knownTags } = state;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -21,6 +22,15 @@ export function GalleryInfoPane() {
       dispatch({ type: "UPDATE_GALLERY", index: selectedGalleryIndex, entry: { [field]: value } });
     },
     [selectedGalleryIndex, dispatch]
+  );
+
+  const handleTagsChange = useCallback(
+    (tags: string[]) => {
+      if (selectedGalleryIndex === null) return;
+      dispatch({ type: "UPDATE_GALLERY", index: selectedGalleryIndex, entry: { tags } });
+      debouncedSaveGalleries();
+    },
+    [selectedGalleryIndex, dispatch, debouncedSaveGalleries]
   );
 
   const handleBlur = useCallback(() => {
@@ -71,6 +81,15 @@ export function GalleryInfoPane() {
 
           <label className="block text-xs text-muted-foreground mb-1">Slug</label>
           <p className="text-sm text-foreground/70 mb-4">{selectedGallery.slug}</p>
+
+          <label className="block text-xs text-muted-foreground mb-1">Tags</label>
+          <div className="mb-4">
+            <TagInput
+              tags={selectedGallery.tags ?? []}
+              knownTags={knownTags}
+              onChange={handleTagsChange}
+            />
+          </div>
 
           <button
             onClick={() => setConfirmDelete(true)}

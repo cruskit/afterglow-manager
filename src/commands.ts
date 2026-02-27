@@ -59,6 +59,10 @@ export async function validateCredentials(
   return invoke<ValidationResult>("validate_credentials", { keyId, secret, bucket, region });
 }
 
+export async function getAllTags(workspacePath: string): Promise<string[]> {
+  return invoke<string[]>("get_all_tags", { workspacePath });
+}
+
 // Publish commands
 export async function publishPreview(
   folderPath: string,

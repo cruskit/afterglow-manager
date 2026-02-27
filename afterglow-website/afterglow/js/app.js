@@ -2,6 +2,8 @@
   "use strict";
 
   const app = document.getElementById("app");
+  const searchResultsEl = document.getElementById("search-results");
+  const searchInput = document.getElementById("search-input");
   const lightboxEl = document.getElementById("lightbox");
   const lightboxImg = lightboxEl.querySelector(".lightbox-img");
   const lightboxClose = lightboxEl.querySelector(".lightbox-close");
@@ -11,6 +13,7 @@
   // ===== Data Cache =====
   let galleriesCache = null;
   const galleryDetailCache = new Map();
+  let searchIndexCache = null;
 
   async function fetchGalleries() {
     if (galleriesCache) return galleriesCache;
@@ -36,26 +39,142 @@
     return data;
   }
 
+  // ===== Search Index =====
+  async function loadSearchIndex() {
+    if (searchIndexCache) return searchIndexCache;
+    const r = await fetch("galleries/search-index.json");
+    searchIndexCache = await r.json();
+    return searchIndexCache;
+  }
+
+  function parseQuery(q) {
+    const tags = [], terms = [];
+    for (const word of q.trim().split(/\s+/)) {
+      if (!word) continue;
+      if (word.startsWith("#")) tags.push(word.slice(1).toLowerCase());
+      else terms.push(word.toLowerCase());
+    }
+    return { tags, terms };
+  }
+
+  function matchesItem(item, fields, { tags, terms }) {
+    if (tags.length && !tags.every((t) => (item.tags || []).includes(t))) return false;
+    if (terms.length && !terms.every((t) => fields.some((f) => f.toLowerCase().includes(t)))) return false;
+    return true;
+  }
+
+  async function renderSearch(q) {
+    if (!q.trim()) {
+      showGalleryView();
+      return;
+    }
+
+    try {
+      const index = await loadSearchIndex();
+      const { tags, terms } = parseQuery(q);
+
+      const matchedGalleries = index.galleries.filter((g) =>
+        matchesItem(g, [g.name, g.date, g.description || "", ...(g.tags || [])], { tags, terms })
+      );
+      const matchedPhotos = index.photos.filter((p) =>
+        matchesItem(p, [p.alt, p.gallerySlug, ...(p.tags || [])], { tags, terms })
+      );
+
+      let html = "";
+
+      if (matchedGalleries.length === 0 && matchedPhotos.length === 0) {
+        html = `<div class="search-no-results">No results for &ldquo;${escapeHtml(q)}&rdquo;</div>`;
+      } else {
+        if (matchedGalleries.length > 0) {
+          html += `<div class="search-section"><h2 class="search-section-title">Galleries (${matchedGalleries.length})</h2><div class="gallery-grid">`;
+          for (const g of matchedGalleries) {
+            html += `<a class="gallery-tile" href="#gallery=${encodeURIComponent(g.slug)}">
+              <div class="gallery-tile-info">
+                <div class="gallery-tile-name">${escapeHtml(g.name)}</div>
+                <div class="gallery-tile-date">${escapeHtml(g.date)}</div>
+              </div>
+            </a>`;
+          }
+          html += `</div></div>`;
+        }
+        if (matchedPhotos.length > 0) {
+          html += `<div class="search-section"><h2 class="search-section-title">Photos (${matchedPhotos.length})</h2><div class="search-photo-grid">`;
+          for (const p of matchedPhotos) {
+            html += `<a class="search-photo-thumb" href="#gallery=${encodeURIComponent(p.gallerySlug)}">
+              <img src="galleries/${escapeHtml(p.gallerySlug)}/${escapeHtml(p.thumbnail)}" alt="${escapeHtml(p.alt)}" loading="lazy">
+              <div class="search-photo-caption">${escapeHtml(p.alt || p.gallerySlug)}</div>
+            </a>`;
+          }
+          html += `</div></div>`;
+        }
+      }
+
+      searchResultsEl.innerHTML = html;
+      showSearchView();
+    } catch (_e) {
+      searchResultsEl.innerHTML = `<div class="search-no-results">Search unavailable.</div>`;
+      showSearchView();
+    }
+  }
+
+  function renderTags(tags) {
+    if (!tags || tags.length === 0) return "";
+    const pills = tags
+      .map((t) => `<a class="tag-pill" href="#search=${encodeURIComponent(t)}">${escapeHtml(t)}</a>`)
+      .join("");
+    return `<div class="tag-list">${pills}</div>`;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function showSearchView() {
+    app.hidden = true;
+    searchResultsEl.hidden = false;
+  }
+
+  function showGalleryView() {
+    app.hidden = false;
+    searchResultsEl.hidden = true;
+  }
+
   // ===== Router =====
   function getRoute() {
     const hash = location.hash.slice(1);
     if (!hash) return { view: "home" };
     const params = new URLSearchParams(hash);
     const gallery = params.get("gallery");
+    const search = params.get("search");
     if (gallery) return { view: "gallery", gallery };
+    if (search !== null) return { view: "search", query: search };
     return { view: "home" };
   }
 
   async function route() {
-    const { view, gallery } = getRoute();
-    if (view === "gallery" && gallery) {
+    const { view, gallery, query } = getRoute();
+    if (view === "search") {
+      searchInput.value = query || "";
+      await renderSearch(query || "");
+    } else if (view === "gallery" && gallery) {
+      showGalleryView();
+      searchInput.value = "";
       await renderGallery(gallery);
     } else {
+      showGalleryView();
+      searchInput.value = "";
       await renderHome();
     }
   }
 
-  window.addEventListener("hashchange", route);
+  window.addEventListener("hashchange", () => {
+    if (!lightboxEl.hidden) closeLightbox();
+    route();
+  });
 
   // ===== Homepage Renderer =====
   async function renderHome() {
@@ -74,6 +193,7 @@
           <div class="gallery-tile-info">
             <div class="gallery-tile-name">${g.name}</div>
             <div class="gallery-tile-date">${g.date}</div>
+            ${renderTags(g.tags)}
           </div>
         `;
         grid.appendChild(tile);
@@ -103,6 +223,7 @@
         <h1 class="gallery-title">${detail.name}</h1>
         <div class="gallery-date">${detail.date}</div>
         ${detail.description ? `<p class="gallery-description">${detail.description}</p>` : ""}
+        ${renderTags(detail.tags)}
       `;
 
       const masonry = document.createElement("div");
@@ -144,6 +265,9 @@
     const photo = currentPhotos[index];
     lightboxImg.classList.remove("loaded");
     lightboxImg.alt = photo.alt || "";
+
+    const captionEl = document.getElementById("lightbox-caption");
+    if (captionEl) captionEl.innerHTML = renderTags(photo.tags);
 
     const img = new Image();
     img.src = photo.full;
@@ -194,6 +318,43 @@
     if (e.key === "Escape") closeLightbox();
     if (e.key === "ArrowLeft") prevImage();
     if (e.key === "ArrowRight") nextImage();
+  });
+
+  // ===== Search Input =====
+  let searchDebounce = null;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchDebounce);
+    const q = searchInput.value;
+    searchDebounce = setTimeout(() => {
+      if (q.trim()) {
+        history.replaceState(null, "", "#search=" + encodeURIComponent(q));
+        renderSearch(q);
+      } else {
+        history.replaceState(null, "", "#");
+        showGalleryView();
+        route();
+      }
+    }, 150);
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      searchInput.value = "";
+      searchInput.blur();
+      history.replaceState(null, "", "#");
+      showGalleryView();
+      route();
+    }
+  });
+
+  // Press / to focus search (when not in an input)
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && document.activeElement !== searchInput &&
+        !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
   });
 
   // ===== Init =====

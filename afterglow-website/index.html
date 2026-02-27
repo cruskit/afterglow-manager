@@ -15,9 +15,13 @@
       </svg>
       <span>Third Half Photos</span>
     </a>
+    <div class="header-search">
+      <input id="search-input" type="search" placeholder="Search photos, tags, dates…" autocomplete="off">
+    </div>
   </header>
 
   <main id="app"></main>
+  <div id="search-results" hidden></div>
 
   <div id="lightbox" class="lightbox" hidden>
     <button class="lightbox-close" aria-label="Close">&times;</button>
@@ -26,10 +30,11 @@
     <div class="lightbox-img-container">
       <img class="lightbox-img" src="" alt="">
     </div>
+    <div class="lightbox-caption" id="lightbox-caption"></div>
   </div>
 
   <footer class="site-footer">
-    <p>&copy; 2026 Third Half Photos. All rights reserved. AfterGlow v1.5.0</p>
+    <p>&copy; 2026 Third Half Photos. All rights reserved. AfterGlow v1.6.1</p>
   </footer>
 
   <script src="afterglow/js/app.js"></script>
