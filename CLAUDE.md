@@ -76,7 +76,7 @@ At publish time, `publish_preview` generates WebP thumbnails for all referenced 
 
 - **Local cache**: `{workspace}/.data/thumbnails/{slug}/{stem}.webp`
 - **Staleness check**: thumbnail is regenerated if source mtime > thumbnail mtime (or thumbnail missing)
-- **Format**: WebP, 85% quality, max 1600 px on longest side (Lanczos3 downscale only)
+- **Format**: WebP, 85% quality, max 800 px on longest side (Lanczos3 downscale only)
 - **S3 path**: `galleries/{slug}/.thumbs/{stem}.webp`
 - **JSON rewriting** (publish-time only, local files unchanged):
   - `galleries.json` cover field: `"sunset/01.jpg"` → `"sunset/.thumbs/01.webp"`

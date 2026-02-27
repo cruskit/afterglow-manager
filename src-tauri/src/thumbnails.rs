@@ -155,7 +155,7 @@ pub fn is_thumbnail_fresh(source: &Path, dest: &Path) -> bool {
 
 /// Generate a lossy WebP thumbnail from `source` and write it atomically to `dest`.
 ///
-/// Downscales to a maximum of 1600 px on the longest side (preserving aspect ratio).
+/// Downscales to a maximum of 800 px on the longest side (preserving aspect ratio).
 /// Images already within that limit are re-encoded without resizing.
 pub fn generate_thumbnail(source: &Path, dest: &Path) -> Result<(), String> {
     if let Some(parent) = dest.parent() {
@@ -166,8 +166,8 @@ pub fn generate_thumbnail(source: &Path, dest: &Path) -> Result<(), String> {
     let img = image::open(source)
         .map_err(|e| format!("Failed to open {}: {}", source.display(), e))?;
 
-    let resized = if img.width() > 1600 || img.height() > 1600 {
-        img.resize(1600, 1600, image::imageops::FilterType::Lanczos3)
+    let resized = if img.width() > 800 || img.height() > 800 {
+        img.resize(800, 800, image::imageops::FilterType::Lanczos3)
     } else {
         img
     };
@@ -275,22 +275,22 @@ mod tests {
         let dest = tmp.path().join("large.webp");
         generate_thumbnail(&src, &dest).unwrap();
         let decoded = image::open(&dest).unwrap();
-        assert!(decoded.width() <= 1600);
-        assert!(decoded.height() <= 1600);
+        assert!(decoded.width() <= 800);
+        assert!(decoded.height() <= 800);
     }
 
     #[test]
     fn generate_thumbnail_preserves_aspect_ratio() {
         let tmp = TempDir::new().unwrap();
         let src = tmp.path().join("wide.jpg");
-        // 4:3 aspect ratio, larger than 1600
+        // 4:3 aspect ratio, larger than 800
         make_jpeg(&src, 3200, 2400);
         let dest = tmp.path().join("wide.webp");
         generate_thumbnail(&src, &dest).unwrap();
         let decoded = image::open(&dest).unwrap();
-        // Longest side capped at 1600, other side scaled proportionally
-        assert_eq!(decoded.width(), 1600);
-        assert_eq!(decoded.height(), 1200);
+        // Longest side capped at 800, other side scaled proportionally
+        assert_eq!(decoded.width(), 800);
+        assert_eq!(decoded.height(), 600);
     }
 
     #[test]
