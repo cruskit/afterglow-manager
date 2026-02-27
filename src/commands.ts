@@ -80,3 +80,19 @@ export async function publishExecute(planId: string): Promise<void> {
 export async function publishCancel(planId: string): Promise<void> {
   return invoke("publish_cancel", { planId });
 }
+
+export async function startWatching(workspacePath: string): Promise<void> {
+  return invoke("start_watching", { workspacePath });
+}
+
+export async function stopWatching(): Promise<void> {
+  return invoke("stop_watching");
+}
+
+export async function removePhotoFromGalleryDetails(
+  workspacePath: string,
+  slug: string,
+  filename: string
+): Promise<void> {
+  return invoke("remove_photo_from_gallery_details", { workspacePath, slug, filename });
+}
