@@ -4,6 +4,7 @@ export interface GalleryEntry {
   slug: string;
   date: string;
   cover: string;
+  tags?: string[];
 }
 
 export type GalleriesJson = GalleryEntry[];
@@ -28,6 +29,7 @@ export interface PhotoEntry {
   thumbnail: string;
   full: string;
   alt: string;
+  tags?: string[];
 }
 
 // gallery-details.json root
@@ -63,6 +65,7 @@ export interface WorkspaceState {
   currentDirImages: string[];
   viewMode: ViewMode;
   error: string | null;
+  knownTags: string[];
 }
 
 // Settings & Publishing types
@@ -139,4 +142,5 @@ export type WorkspaceAction =
   | { type: "SET_DIR_IMAGES"; images: string[] }
   | { type: "SET_GALLERY_COUNTS"; counts: Record<string, { tracked: number; total: number }> }
   | { type: "SET_ERROR"; error: string | null }
+  | { type: "SET_KNOWN_TAGS"; tags: string[] }
   | { type: "RESET" };

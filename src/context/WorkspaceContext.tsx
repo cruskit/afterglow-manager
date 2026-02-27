@@ -53,6 +53,7 @@ const initialState: WorkspaceState = {
   currentDirImages: [],
   viewMode: "welcome",
   error: null,
+  knownTags: [],
 };
 
 function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
@@ -86,8 +87,16 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, selectedImageIndex: action.index };
     case "UPDATE_GALLERY": {
       const galleries = [...state.galleries];
-      galleries[action.index] = { ...galleries[action.index], ...action.entry };
-      return { ...state, galleries };
+      const entry = { ...action.entry };
+      if (entry.tags !== undefined && entry.tags.length === 0) {
+        entry.tags = undefined;
+      }
+      galleries[action.index] = { ...galleries[action.index], ...entry };
+      const newTags = entry.tags ?? [];
+      const knownTags = newTags.length > 0
+        ? [...new Set([...state.knownTags, ...newTags])].sort()
+        : state.knownTags;
+      return { ...state, galleries, knownTags };
     }
     case "DELETE_GALLERY": {
       const galleries = state.galleries.filter((_, i) => i !== action.index);
@@ -116,15 +125,24 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     case "UPDATE_PHOTO": {
       if (!state.galleryDetails) return state;
       const photos = [...state.galleryDetails.photos];
-      const updated = { ...photos[action.index], ...action.entry };
+      const photoEntry = { ...action.entry };
+      if (photoEntry.tags !== undefined && photoEntry.tags.length === 0) {
+        photoEntry.tags = undefined;
+      }
+      const updated = { ...photos[action.index], ...photoEntry };
       // Mirror thumbnail = full
-      if (action.entry.full !== undefined) {
-        updated.thumbnail = action.entry.full;
+      if (photoEntry.full !== undefined) {
+        updated.thumbnail = photoEntry.full;
       }
       photos[action.index] = updated;
+      const newTags = photoEntry.tags ?? [];
+      const knownTags = newTags.length > 0
+        ? [...new Set([...state.knownTags, ...newTags])].sort()
+        : state.knownTags;
       return {
         ...state,
         galleryDetails: { ...state.galleryDetails, photos },
+        knownTags,
       };
     }
     case "DELETE_PHOTO": {
@@ -183,6 +201,8 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, galleryCounts: action.counts };
     case "SET_ERROR":
       return { ...state, error: action.error };
+    case "SET_KNOWN_TAGS":
+      return { ...state, knownTags: action.tags };
     case "RESET":
       return initialState;
     default:

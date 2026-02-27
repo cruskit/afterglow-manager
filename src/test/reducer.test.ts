@@ -34,8 +34,14 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, selectedImageIndex: action.index };
     case "UPDATE_GALLERY": {
       const galleries = [...state.galleries];
-      galleries[action.index] = { ...galleries[action.index], ...action.entry };
-      return { ...state, galleries };
+      const entryG = { ...action.entry };
+      if (entryG.tags !== undefined && entryG.tags.length === 0) entryG.tags = undefined;
+      galleries[action.index] = { ...galleries[action.index], ...entryG };
+      const newTagsG = entryG.tags ?? [];
+      const knownTagsG = newTagsG.length > 0
+        ? [...new Set([...state.knownTags, ...newTagsG])].sort()
+        : state.knownTags;
+      return { ...state, galleries, knownTags: knownTagsG };
     }
     case "DELETE_GALLERY": {
       const galleries = state.galleries.filter((_, i) => i !== action.index);
@@ -64,14 +70,19 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     case "UPDATE_PHOTO": {
       if (!state.galleryDetails) return state;
       const photos = [...state.galleryDetails.photos];
-      const updated = { ...photos[action.index], ...action.entry };
-      if (action.entry.full !== undefined) {
-        updated.thumbnail = action.entry.full;
-      }
+      const entryP = { ...action.entry };
+      if (entryP.tags !== undefined && entryP.tags.length === 0) entryP.tags = undefined;
+      const updated = { ...photos[action.index], ...entryP };
+      if (entryP.full !== undefined) updated.thumbnail = entryP.full;
       photos[action.index] = updated;
+      const newTagsP = entryP.tags ?? [];
+      const knownTagsP = newTagsP.length > 0
+        ? [...new Set([...state.knownTags, ...newTagsP])].sort()
+        : state.knownTags;
       return {
         ...state,
         galleryDetails: { ...state.galleryDetails, photos },
+        knownTags: knownTagsP,
       };
     }
     case "DELETE_PHOTO": {
@@ -117,6 +128,8 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, currentDirImages: action.images };
     case "SET_ERROR":
       return { ...state, error: action.error };
+    case "SET_KNOWN_TAGS":
+      return { ...state, knownTags: action.tags };
     case "RESET":
       return makeInitialState();
     default:
@@ -140,6 +153,7 @@ function makeInitialState(): WorkspaceState {
     currentDirImages: [],
     viewMode: "welcome",
     error: null,
+    knownTags: [],
   };
 }
 
@@ -258,6 +272,16 @@ describe("workspaceReducer", () => {
     });
   });
 
+  describe("SET_KNOWN_TAGS", () => {
+    it("sets knownTags", () => {
+      const state = workspaceReducer(makeInitialState(), {
+        type: "SET_KNOWN_TAGS",
+        tags: ["landscape", "portrait"],
+      });
+      expect(state.knownTags).toEqual(["landscape", "portrait"]);
+    });
+  });
+
   describe("UPDATE_GALLERY", () => {
     it("updates a gallery entry by index", () => {
       const prev = {
@@ -272,6 +296,34 @@ describe("workspaceReducer", () => {
       expect(state.galleries[1].name).toBe("Updated Name");
       expect(state.galleries[1].slug).toBe("second");
       expect(state.galleries[0].name).toBe("Test Gallery");
+    });
+
+    it("adds tags and unions into knownTags", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery()],
+        knownTags: ["existing"],
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY",
+        index: 0,
+        entry: { tags: ["landscape", "existing"] },
+      });
+      expect(state.galleries[0].tags).toEqual(["landscape", "existing"]);
+      expect(state.knownTags).toEqual(["existing", "landscape"]);
+    });
+
+    it("omits tags from gallery when empty array", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery({ tags: ["old"] })],
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY",
+        index: 0,
+        entry: { tags: [] },
+      });
+      expect(state.galleries[0].tags).toBeUndefined();
     });
   });
 
@@ -349,6 +401,34 @@ describe("workspaceReducer", () => {
   });
 
   describe("UPDATE_PHOTO", () => {
+    it("adds tags and unions into knownTags", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleryDetails: makeDetails({ photos: [makePhoto()] }),
+        knownTags: ["nature"],
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_PHOTO",
+        index: 0,
+        entry: { tags: ["sunset", "nature"] },
+      });
+      expect(state.galleryDetails?.photos[0].tags).toEqual(["sunset", "nature"]);
+      expect(state.knownTags).toEqual(["nature", "sunset"]);
+    });
+
+    it("omits tags from photo when empty array", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleryDetails: makeDetails({ photos: [makePhoto({ tags: ["old"] })] }),
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_PHOTO",
+        index: 0,
+        entry: { tags: [] },
+      });
+      expect(state.galleryDetails?.photos[0].tags).toBeUndefined();
+    });
+
     it("updates a photo entry and mirrors full to thumbnail", () => {
       const prev = {
         ...makeInitialState(),

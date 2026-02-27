@@ -6,6 +6,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { UntrackedList } from "../components/UntrackedList";
 import { GalleryTile } from "../components/GalleryTile";
 import { ImageTile } from "../components/ImageTile";
+import { TagInput } from "../components/TagInput";
 
 // Mock invoke for all tests
 const mockInvoke = vi.fn();
@@ -258,6 +259,70 @@ describe("GalleryTile", () => {
     // The name should appear as placeholder text inside the tile body
     const tile = screen.getByTestId("gallery-tile-0");
     expect(tile).toBeInTheDocument();
+  });
+});
+
+describe("TagInput", () => {
+  it("renders existing tags as chips", () => {
+    renderWithProviders(
+      <TagInput tags={["landscape", "nature"]} knownTags={[]} onChange={() => {}} />
+    );
+    expect(screen.getByText("landscape")).toBeInTheDocument();
+    expect(screen.getByText("nature")).toBeInTheDocument();
+  });
+
+  it("calls onChange with tag removed when × clicked", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <TagInput tags={["landscape", "nature"]} knownTags={[]} onChange={onChange} />
+    );
+    const removeButtons = screen.getAllByRole("button", { name: /Remove tag/ });
+    fireEvent.click(removeButtons[0]);
+    expect(onChange).toHaveBeenCalledWith(["nature"]);
+  });
+
+  it("adds tag on Enter key", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <TagInput tags={[]} knownTags={[]} onChange={onChange} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "sunset" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(["sunset"]);
+  });
+
+  it("shows suggestions filtered by input", () => {
+    renderWithProviders(
+      <TagInput tags={[]} knownTags={["landscape", "sunset", "portrait"]} onChange={() => {}} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "sun" } });
+    expect(screen.getByText("sunset")).toBeInTheDocument();
+    expect(screen.queryByText("landscape")).not.toBeInTheDocument();
+  });
+
+  it("does not show already-added tags in suggestions dropdown", () => {
+    renderWithProviders(
+      <TagInput tags={["landscape"]} knownTags={["landscape", "sunset"]} onChange={() => {}} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "land" } });
+    // "landscape" appears as a chip but should not appear in the suggestions dropdown list
+    const allLandscape = screen.queryAllByText("landscape");
+    // Only the chip should contain "landscape", not a dropdown li item
+    const inList = allLandscape.filter((el) => el.closest("li"));
+    expect(inList).toHaveLength(0);
+  });
+
+  it("removes last tag on Backspace when input is empty", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <TagInput tags={["landscape", "nature"]} knownTags={[]} onChange={onChange} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(onChange).toHaveBeenCalledWith(["landscape"]);
   });
 });
 

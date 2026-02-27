@@ -249,6 +249,117 @@ pub struct PublishError {
     pub file: String,
 }
 
+// ===== Search Index =====
+
+#[derive(Debug, Serialize)]
+struct SearchIndexGallery {
+    slug: String,
+    name: String,
+    date: String,
+    description: String,
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchIndexPhoto {
+    gallery_slug: String,
+    thumbnail: String,
+    full: String,
+    alt: String,
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchIndex {
+    version: u32,
+    galleries: Vec<SearchIndexGallery>,
+    photos: Vec<SearchIndexPhoto>,
+}
+
+fn generate_search_index(root: &Path) -> Result<Vec<u8>, String> {
+    let mut galleries_out: Vec<SearchIndexGallery> = Vec::new();
+    let mut photos_out: Vec<SearchIndexPhoto> = Vec::new();
+
+    let galleries_path = root.join("galleries.json");
+    if !galleries_path.exists() {
+        let index = SearchIndex { version: 1, galleries: vec![], photos: vec![] };
+        return serde_json::to_vec(&index).map_err(|e| e.to_string());
+    }
+
+    let content = fs::read_to_string(&galleries_path).map_err(|e| e.to_string())?;
+    let raw: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let galleries = if let Some(arr) = raw.as_array() {
+        arr.clone()
+    } else if let Some(obj) = raw.as_object() {
+        obj.get("galleries")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    for gallery in &galleries {
+        let slug = match gallery.get("slug").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let name = gallery.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let date = gallery.get("date").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let gallery_tags: Vec<String> = gallery
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
+
+        let details_path = root.join(&slug).join("gallery-details.json");
+        let mut description = String::new();
+
+        if details_path.exists() {
+            if let Ok(dc) = fs::read_to_string(&details_path) {
+                if let Ok(dv) = serde_json::from_str::<serde_json::Value>(&dc) {
+                    description = dv.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if let Some(photos) = dv.get("photos").and_then(|v| v.as_array()) {
+                        for photo in photos {
+                            let thumbnail = photo.get("thumbnail").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let full = photo.get("full").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let alt = photo.get("alt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let photo_tags: Vec<String> = photo
+                                .get("tags")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect())
+                                .unwrap_or_default();
+                            photos_out.push(SearchIndexPhoto {
+                                gallery_slug: slug.clone(),
+                                thumbnail,
+                                full,
+                                alt,
+                                tags: photo_tags,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        galleries_out.push(SearchIndexGallery {
+            slug,
+            name,
+            date,
+            description,
+            tags: gallery_tags,
+        });
+    }
+
+    let index = SearchIndex {
+        version: 1,
+        galleries: galleries_out,
+        photos: photos_out,
+    };
+    serde_json::to_vec_pretty(&index).map_err(|e| e.to_string())
+}
+
 pub struct PublishState {
     pub plans: HashMap<String, PublishPlan>,
     pub cancelled: HashMap<String, bool>,
@@ -309,6 +420,17 @@ pub async fn publish_preview(
         let md5 = compute_md5(file_path)?;
         local_map.insert(s3_key, (file_path.clone(), md5));
     }
+
+    // Search index goes at {s3_root}galleries/search-index.json
+    let search_index_bytes = generate_search_index(&root)?;
+    let tmp_dir = std::env::temp_dir().join("afterglow-manager-search");
+    fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let search_index_path = tmp_dir.join("search-index.json");
+    fs::write(&search_index_path, &search_index_bytes)
+        .map_err(|e| format!("Failed to write search index: {}", e))?;
+    let search_index_key = format!("{}search-index.json", galleries_prefix);
+    let search_index_md5 = compute_md5(&search_index_path)?;
+    local_map.insert(search_index_key, (search_index_path, search_index_md5));
 
     // Website files go at {s3_root}index.html, {s3_root}afterglow/...
     let website_files = collect_website_files(&s3_root)?;

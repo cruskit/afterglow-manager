@@ -126,6 +126,69 @@ async fn get_image_uri(abs_path: String) -> Result<String, String> {
     Ok(abs_path)
 }
 
+#[tauri::command]
+async fn get_all_tags(workspace_path: String) -> Result<Vec<String>, String> {
+    use std::collections::HashSet;
+    let root = PathBuf::from(&workspace_path);
+    let mut tags: HashSet<String> = HashSet::new();
+
+    // Read gallery-level tags from galleries.json
+    let galleries_path = root.join("galleries.json");
+    if galleries_path.exists() {
+        let content = fs::read_to_string(&galleries_path).map_err(|e| e.to_string())?;
+        let raw: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        let galleries = if let Some(arr) = raw.as_array() {
+            arr.clone()
+        } else if let Some(obj) = raw.as_object() {
+            obj.get("galleries")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        for gallery in &galleries {
+            if let Some(tag_arr) = gallery.get("tags").and_then(|v| v.as_array()) {
+                for t in tag_arr {
+                    if let Some(s) = t.as_str() {
+                        tags.insert(s.to_string());
+                    }
+                }
+            }
+
+            // Read photo-level tags from each gallery-details.json
+            let slug = match gallery.get("slug").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            let details_path = root.join(slug).join("gallery-details.json");
+            if !details_path.exists() {
+                continue;
+            }
+            if let Ok(dc) = fs::read_to_string(&details_path) {
+                if let Ok(dv) = serde_json::from_str::<serde_json::Value>(&dc) {
+                    if let Some(photos) = dv.get("photos").and_then(|v| v.as_array()) {
+                        for photo in photos {
+                            if let Some(tag_arr) = photo.get("tags").and_then(|v| v.as_array()) {
+                                for t in tag_arr {
+                                    if let Some(s) = t.as_str() {
+                                        tags.insert(s.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<String> = tags.into_iter().collect();
+    result.sort();
+    Ok(result)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -142,6 +205,7 @@ pub fn run() {
             file_exists,
             get_file_modified_time,
             get_image_uri,
+            get_all_tags,
             settings::load_settings,
             settings::save_settings,
             settings::save_credentials,
