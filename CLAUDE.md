@@ -44,12 +44,12 @@ npm run tauri build
 - **React frontend** (`src/`): UI with React Context + `useReducer` for state management (no Redux). State lives in `WorkspaceContext.tsx` which is the central hub — all gallery/image edits dispatch reducer actions, then auto-save to disk via Tauri IPC with 300ms debounce.
 
 **Key Rust modules:**
-- `lib.rs` — IPC command registration and all `#[tauri::command]` handlers
+- `lib.rs` — IPC command registration and all `#[tauri::command]` handlers. Also contains `WatcherState` managed state and fs-watching logic (see File System Watching below).
 - `settings.rs` — AppSettings persistence (JSON file + OS keychain), AWS credential validation via STS
 - `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Syncs gallery data files (reachable from `galleries.json`) plus the bundled website assets from `s3Root` (the `afterglow-website/` directory). Also generates and publishes `galleries/search-index.json` at publish time. At publish time, generates WebP thumbnails and rewrites JSON paths (see Thumbnail Generation below).
 - `thumbnails.rs` — Thumbnail generation: `build_thumbnail_specs`, `ensure_thumbnails`, `generate_thumbnail`, `is_thumbnail_fresh`. Invoked from `publish_preview`.
 
-**Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open).
+**Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open). `AppShell` also manages the fs watcher lifecycle (start on workspace open, stop on close) and handles `workspace-fs-change` events.
 
 ## Data Model
 
@@ -69,6 +69,21 @@ Frontend tests use Vitest + React Testing Library with Tauri API mocks defined i
 - `App.test.tsx` — app-level routing
 
 Rust unit tests are inline in `settings.rs`, `publish.rs`, and `thumbnails.rs`.
+
+## File System Watching (v1.9.0+)
+
+`notify-debouncer-mini` (500ms debounce) watches the workspace root recursively. Events are filtered in `classify_fs_event` and emitted to the frontend as `workspace-fs-change` with a typed payload.
+
+**Rust side (`lib.rs`):**
+- `WatcherState(Mutex<Option<Debouncer<RecommendedWatcher>>>)` — managed state, registered via `.manage()`
+- `classify_fs_event(path, workspace)` — filters to depth ≤ 2, skips hidden paths (starting with `.`) and `.json` files. Depth-1 directory events → `dir-created`/`dir-removed`; depth-2 image file events → `image-created`/`image-removed`
+- `start_watching` / `stop_watching` — IPC commands called by frontend on workspace open/close
+- `remove_photo_from_gallery_details` — atomically removes a photo entry from `gallery-details.json` by filename match (used when a tracked image is deleted while its gallery is not the active view)
+
+**Frontend side:**
+- `AppShell.tsx` uses `useRef(state)` (stateRef pattern) for non-stale event handler access
+- `handleFsChange` dispatches: `dir-created` → `loadSubdirectories()`; `dir-removed` → reload sidebar + delete from `galleries.json` if tracked; `image-created` → reload dir images + refresh count; `image-removed` → reload dir images + auto-remove from `galleryDetails` state (if currently viewing) or disk (if not), + refresh count
+- `WorkspaceContext` exposes `refreshGalleryCount(slug)` — re-scans a single gallery dir and updates `galleryCounts` for that slug only
 
 ## Thumbnail Generation (v1.7.0+)
 
