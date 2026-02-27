@@ -1,4 +1,5 @@
 use crate::settings::{extract_bucket_name, extract_distribution_id, get_credentials_from_keychain};
+use crate::thumbnails::{build_thumbnail_specs, ensure_thumbnails_with_progress, parse_galleries_array};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
@@ -249,6 +250,100 @@ pub struct PublishError {
     pub file: String,
 }
 
+// ===== Thumbnail Progress =====
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailProgress {
+    /// 1-based index of the thumbnail just processed; 0 means no thumbnails to generate.
+    pub current: usize,
+    pub total: usize,
+    /// Display name shown in the UI, e.g. "sunset/photo01.webp". Empty when total is 0.
+    pub filename: String,
+}
+
+// ===== Publish-time JSON rewriting =====
+
+/// Read `galleries.json` and return bytes with `cover` fields rewritten to point
+/// at WebP thumbnails for any cover whose source path is in `cover_thumb_map`.
+///
+/// `cover_thumb_map`: source_path → new cover value (e.g. "sunset/.thumbs/01.webp")
+fn rewrite_galleries_json_for_publish(
+    root: &Path,
+    cover_thumb_map: &HashMap<PathBuf, String>,
+) -> Result<Vec<u8>, String> {
+    let path = root.join("galleries.json");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read galleries.json: {}", e))?;
+    let mut raw: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse galleries.json: {}", e))?;
+
+    let galleries = if let Some(obj) = raw.as_object_mut() {
+        obj.get_mut("galleries").and_then(|v| v.as_array_mut())
+    } else {
+        raw.as_array_mut()
+    };
+
+    if let Some(galleries) = galleries {
+        for gallery in galleries.iter_mut() {
+            let cover = gallery
+                .get("cover")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if !cover.is_empty() {
+                let source_path = root.join(&cover);
+                if let Some(new_cover) = cover_thumb_map.get(&source_path) {
+                    if let Some(g) = gallery.as_object_mut() {
+                        g.insert("cover".to_string(), serde_json::Value::String(new_cover.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::to_vec_pretty(&raw).map_err(|e| e.to_string())
+}
+
+/// Read a `gallery-details.json` and return bytes with `thumbnail` fields
+/// rewritten to point at WebP thumbnails for any photo in `photo_thumb_map`.
+///
+/// `photo_thumb_map`: source_path → new thumbnail value (e.g. ".thumbs/01.webp")
+fn rewrite_gallery_details_json_for_publish(
+    details_path: &Path,
+    root: &Path,
+    slug: &str,
+    photo_thumb_map: &HashMap<PathBuf, String>,
+) -> Result<Vec<u8>, String> {
+    let content = fs::read_to_string(details_path)
+        .map_err(|e| format!("Failed to read {}: {}", details_path.display(), e))?;
+    let mut raw: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse {}: {}", details_path.display(), e))?;
+
+    if let Some(photos) = raw.get_mut("photos").and_then(|v| v.as_array_mut()) {
+        for photo in photos.iter_mut() {
+            let thumbnail = photo
+                .get("thumbnail")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if !thumbnail.is_empty() {
+                let source_path = root.join(slug).join(&thumbnail);
+                if let Some(new_thumbnail) = photo_thumb_map.get(&source_path) {
+                    if let Some(p) = photo.as_object_mut() {
+                        p.insert(
+                            "thumbnail".to_string(),
+                            serde_json::Value::String(new_thumbnail.clone()),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::to_vec_pretty(&raw).map_err(|e| e.to_string())
+}
+
 // ===== Search Index =====
 
 #[derive(Debug, Serialize)]
@@ -277,7 +372,10 @@ struct SearchIndex {
     photos: Vec<SearchIndexPhoto>,
 }
 
-fn generate_search_index(root: &Path) -> Result<Vec<u8>, String> {
+fn generate_search_index(
+    root: &Path,
+    photo_thumb_map: &HashMap<PathBuf, String>,
+) -> Result<Vec<u8>, String> {
     let mut galleries_out: Vec<SearchIndexGallery> = Vec::new();
     let mut photos_out: Vec<SearchIndexPhoto> = Vec::new();
 
@@ -289,16 +387,7 @@ fn generate_search_index(root: &Path) -> Result<Vec<u8>, String> {
 
     let content = fs::read_to_string(&galleries_path).map_err(|e| e.to_string())?;
     let raw: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    let galleries = if let Some(arr) = raw.as_array() {
-        arr.clone()
-    } else if let Some(obj) = raw.as_object() {
-        obj.get("galleries")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let galleries = parse_galleries_array(&raw);
 
     for gallery in &galleries {
         let slug = match gallery.get("slug").and_then(|v| v.as_str()) {
@@ -322,7 +411,17 @@ fn generate_search_index(root: &Path) -> Result<Vec<u8>, String> {
                     description = dv.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
                     if let Some(photos) = dv.get("photos").and_then(|v| v.as_array()) {
                         for photo in photos {
-                            let thumbnail = photo.get("thumbnail").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let thumbnail_raw = photo
+                                .get("thumbnail")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            // Rewrite thumbnail to .thumbs/ path if a thumbnail was generated
+                            let source_path = root.join(&slug).join(&thumbnail_raw);
+                            let thumbnail = photo_thumb_map
+                                .get(&source_path)
+                                .cloned()
+                                .unwrap_or(thumbnail_raw);
                             let full = photo.get("full").and_then(|v| v.as_str()).unwrap_or("").to_string();
                             let alt = photo.get("alt").and_then(|v| v.as_str()).unwrap_or("").to_string();
                             let photo_tags: Vec<String> = photo
@@ -404,6 +503,74 @@ pub async fn publish_preview(
         format!("{}/", s3_root)
     };
 
+    // ===== Thumbnail generation =====
+    // Parse galleries.json to build thumbnail specs before any network I/O.
+    let galleries_json: serde_json::Value = {
+        let path = root.join("galleries.json");
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read galleries.json: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse galleries.json: {}", e))?
+    };
+
+    let specs = build_thumbnail_specs(&root, &galleries_json, &s3_root);
+    let total_specs = specs.len();
+
+    let thumb_results = if total_specs > 0 {
+        let specs_for_gen = specs.clone();
+        let app_clone = app.clone();
+        tokio::task::spawn_blocking(move || {
+            ensure_thumbnails_with_progress(&specs_for_gen, |current, total, spec| {
+                let _ = app_clone.emit(
+                    "publish-thumbnail-progress",
+                    ThumbnailProgress {
+                        current,
+                        total,
+                        filename: format!("{}/{}", spec.slug, spec.thumb_filename),
+                    },
+                );
+            })
+        })
+        .await
+        .map_err(|e| format!("Thumbnail generation panicked: {}", e))?
+    } else {
+        // No thumbnails to generate — emit immediately so the UI transitions to scanning
+        let _ = app.emit(
+            "publish-thumbnail-progress",
+            ThumbnailProgress { current: 0, total: 0, filename: String::new() },
+        );
+        crate::thumbnails::ThumbnailResults { generated: 0, skipped: 0, errors: vec![] }
+    };
+
+    if !thumb_results.errors.is_empty() {
+        for (src, err) in &thumb_results.errors {
+            eprintln!("[thumbnails] Error generating {}: {}", src.display(), err);
+        }
+    }
+
+    // Build thumb maps for JSON rewriting.
+    // photo_thumb_map: source_path → ".thumbs/{filename}.webp"  (used in gallery-details.json)
+    // cover_thumb_map: source_path → "{slug}/.thumbs/{filename}.webp"  (used in galleries.json)
+    let mut photo_thumb_map: HashMap<PathBuf, String> = HashMap::new();
+    let mut cover_thumb_map: HashMap<PathBuf, String> = HashMap::new();
+    for spec in &specs {
+        if spec.dest_path.exists() {
+            photo_thumb_map.insert(
+                spec.source_path.clone(),
+                format!(".thumbs/{}", spec.thumb_filename),
+            );
+            cover_thumb_map.insert(
+                spec.source_path.clone(),
+                format!("{}/.thumbs/{}", spec.slug, spec.thumb_filename),
+            );
+        }
+    }
+
+    // Write rewritten JSON to a temp directory.
+    let rewrite_tmp = std::env::temp_dir().join("afterglow-manager-rewritten");
+    fs::create_dir_all(&rewrite_tmp)
+        .map_err(|e| format!("Failed to create rewrite temp dir: {}", e))?;
+
     // Build local file map: s3_key -> (local_path, md5)
     let mut local_map: HashMap<String, (PathBuf, String)> = HashMap::new();
 
@@ -421,8 +588,57 @@ pub async fn publish_preview(
         local_map.insert(s3_key, (file_path.clone(), md5));
     }
 
+    // Rewrite galleries.json with thumbnail cover paths (if any thumbnails generated)
+    if !cover_thumb_map.is_empty() {
+        let rewritten = rewrite_galleries_json_for_publish(&root, &cover_thumb_map)?;
+        let tmp_path = rewrite_tmp.join("galleries.json");
+        fs::write(&tmp_path, &rewritten)
+            .map_err(|e| format!("Failed to write rewritten galleries.json: {}", e))?;
+        let md5 = compute_md5(&tmp_path)?;
+        let s3_key = format!("{}galleries.json", galleries_prefix);
+        local_map.insert(s3_key, (tmp_path, md5));
+    }
+
+    // Rewrite each gallery-details.json with thumbnail paths
+    if !photo_thumb_map.is_empty() {
+        let galleries = parse_galleries_array(&galleries_json);
+        for gallery in &galleries {
+            let slug = match gallery.get("slug").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            let details_path = root.join(slug).join("gallery-details.json");
+            if !details_path.exists() {
+                continue;
+            }
+            let rewritten = rewrite_gallery_details_json_for_publish(
+                &details_path,
+                &root,
+                slug,
+                &photo_thumb_map,
+            )?;
+            let tmp_dir = rewrite_tmp.join(slug);
+            fs::create_dir_all(&tmp_dir)
+                .map_err(|e| format!("Failed to create rewrite tmp dir: {}", e))?;
+            let tmp_path = tmp_dir.join("gallery-details.json");
+            fs::write(&tmp_path, &rewritten)
+                .map_err(|e| format!("Failed to write rewritten gallery-details.json: {}", e))?;
+            let md5 = compute_md5(&tmp_path)?;
+            let s3_key = format!("{}{}/gallery-details.json", galleries_prefix, slug);
+            local_map.insert(s3_key, (tmp_path, md5));
+        }
+    }
+
+    // Add generated thumbnail .webp files to local_map
+    for spec in &specs {
+        if spec.dest_path.exists() {
+            let md5 = compute_md5(&spec.dest_path)?;
+            local_map.insert(spec.s3_key.clone(), (spec.dest_path.clone(), md5));
+        }
+    }
+
     // Search index goes at {s3_root}galleries/search-index.json
-    let search_index_bytes = generate_search_index(&root)?;
+    let search_index_bytes = generate_search_index(&root, &photo_thumb_map)?;
     let tmp_dir = std::env::temp_dir().join("afterglow-manager-search");
     fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
     let search_index_path = tmp_dir.join("search-index.json");

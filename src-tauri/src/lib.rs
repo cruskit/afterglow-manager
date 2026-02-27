@@ -1,5 +1,6 @@
 mod publish;
 mod settings;
+mod thumbnails;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
