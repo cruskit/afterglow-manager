@@ -226,6 +226,7 @@ interface WorkspaceContextValue {
   resolveImagePath: (jsonPath: string, slug?: string) => string;
   debouncedSaveGalleries: () => void;
   debouncedSaveGalleryDetails: () => void;
+  refreshGalleryCount: (slug: string) => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -298,6 +299,30 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       })
     );
     dispatch({ type: "SET_GALLERY_COUNTS", counts });
+  }, []);
+
+  const refreshGalleryCount = useCallback(async (slug: string) => {
+    if (!stateRef.current.folderPath) return;
+    try {
+      const dirPath = `${stateRef.current.folderPath}/${slug}`;
+      const [listing, detailsExist] = await Promise.all([
+        scanDirectory(dirPath),
+        fileExists(`${dirPath}/gallery-details.json`),
+      ]);
+      const total = listing.images.filter(isImageFile).length;
+      let tracked = 0;
+      if (detailsExist) {
+        const raw = await readJsonFile(`${dirPath}/gallery-details.json`);
+        const photos = (raw as { photos?: unknown[] }).photos ?? [];
+        tracked = photos.length;
+      }
+      dispatch({
+        type: "SET_GALLERY_COUNTS",
+        counts: { ...stateRef.current.galleryCounts, [slug]: { tracked, total } },
+      });
+    } catch {
+      // ignore
+    }
   }, []);
 
   const loadGalleries = useCallback(async () => {
@@ -552,6 +577,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     resolveImagePath,
     debouncedSaveGalleries,
     debouncedSaveGalleryDetails,
+    refreshGalleryCount,
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

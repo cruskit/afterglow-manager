@@ -2,11 +2,106 @@ mod publish;
 mod settings;
 mod thumbnails;
 
+use notify_debouncer_mini::Debouncer;
+use notify_debouncer_mini::notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
+
+pub struct WatcherState(pub Mutex<Option<Debouncer<RecommendedWatcher>>>);
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FsChangeEvent {
+    kind: String,
+    gallery_slug: Option<String>,
+    filename: Option<String>,
+}
+
+fn classify_fs_event(path: &Path, workspace: &Path) -> Option<FsChangeEvent> {
+    let rel = path.strip_prefix(workspace).ok()?;
+    let components: Vec<_> = rel.components().collect();
+
+    // Skip empty paths
+    if components.is_empty() {
+        return None;
+    }
+
+    // Skip any path with a hidden component
+    for comp in &components {
+        if let std::path::Component::Normal(name) = comp {
+            if name.to_string_lossy().starts_with('.') {
+                return None;
+            }
+        }
+    }
+
+    match components.len() {
+        1 => {
+            if let std::path::Component::Normal(n) = components[0] {
+                let name = n.to_string_lossy();
+                // Skip json files at root level (e.g. galleries.json)
+                if name.ends_with(".json") {
+                    return None;
+                }
+                let slug = name.to_string();
+                if path.exists() {
+                    if path.is_dir() {
+                        Some(FsChangeEvent {
+                            kind: "dir-created".to_string(),
+                            gallery_slug: Some(slug),
+                            filename: None,
+                        })
+                    } else {
+                        None // file at workspace root, not a gallery dir
+                    }
+                } else {
+                    Some(FsChangeEvent {
+                        kind: "dir-removed".to_string(),
+                        gallery_slug: Some(slug),
+                        filename: None,
+                    })
+                }
+            } else {
+                None
+            }
+        }
+        2 => {
+            if let (
+                std::path::Component::Normal(slug_os),
+                std::path::Component::Normal(file_os),
+            ) = (components[0], components[1])
+            {
+                let filename = file_os.to_string_lossy().to_string();
+                // Skip json files
+                if filename.ends_with(".json") {
+                    return None;
+                }
+                // Must be an image
+                if !is_image_file(path) {
+                    return None;
+                }
+                let slug = slug_os.to_string_lossy().to_string();
+                let kind = if path.exists() {
+                    "image-created".to_string()
+                } else {
+                    "image-removed".to_string()
+                };
+                Some(FsChangeEvent {
+                    kind,
+                    gallery_slug: Some(slug),
+                    filename: Some(filename),
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DirListing {
@@ -190,6 +285,86 @@ async fn get_all_tags(workspace_path: String) -> Result<Vec<String>, String> {
     Ok(result)
 }
 
+#[tauri::command]
+async fn start_watching(
+    workspace_path: String,
+    app: tauri::AppHandle,
+    watcher_state: tauri::State<'_, WatcherState>,
+) -> Result<(), String> {
+    use notify_debouncer_mini::notify::RecursiveMode;
+    use std::time::Duration;
+
+    let workspace = PathBuf::from(&workspace_path);
+    let workspace_for_closure = workspace.clone();
+    let app_handle = app.clone();
+
+    let mut debouncer = notify_debouncer_mini::new_debouncer(
+        Duration::from_millis(500),
+        move |result: notify_debouncer_mini::DebounceEventResult| {
+            if let Ok(events) = result {
+                for event in events {
+                    if let Some(payload) = classify_fs_event(&event.path, &workspace_for_closure) {
+                        let _ = app_handle.emit("workspace-fs-change", payload);
+                    }
+                }
+            }
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    debouncer
+        .watcher()
+        .watch(&workspace, RecursiveMode::Recursive)
+        .map_err(|e| e.to_string())?;
+
+    *watcher_state.0.lock().unwrap() = Some(debouncer);
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_watching(watcher_state: tauri::State<'_, WatcherState>) -> Result<(), String> {
+    *watcher_state.0.lock().unwrap() = None;
+    Ok(())
+}
+
+#[tauri::command]
+async fn remove_photo_from_gallery_details(
+    workspace_path: String,
+    slug: String,
+    filename: String,
+) -> Result<(), String> {
+    let path = PathBuf::from(&workspace_path)
+        .join(&slug)
+        .join("gallery-details.json");
+
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut value: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    if let Some(photos) = value.get_mut("photos").and_then(|p| p.as_array_mut()) {
+        photos.retain(|photo| {
+            let thumb = photo.get("thumbnail").and_then(|v| v.as_str()).unwrap_or("");
+            let full = photo.get("full").and_then(|v| v.as_str()).unwrap_or("");
+            !thumb.ends_with(&*filename) && !full.ends_with(&*filename)
+        });
+    }
+
+    let parent = path.parent().ok_or("No parent directory")?;
+    let temp_path = parent.join(format!(
+        ".{}.tmp",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let json_string = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+    fs::write(&temp_path, &json_string).map_err(|e| e.to_string())?;
+    fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -198,6 +373,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(publish::PublishState::new()))
+        .manage(WatcherState(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             open_folder_dialog,
             scan_directory,
@@ -207,6 +383,9 @@ pub fn run() {
             get_file_modified_time,
             get_image_uri,
             get_all_tags,
+            start_watching,
+            stop_watching,
+            remove_photo_from_gallery_details,
             settings::load_settings,
             settings::save_settings,
             settings::save_credentials,
