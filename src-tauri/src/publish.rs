@@ -1,5 +1,5 @@
 use crate::settings::{extract_bucket_name, extract_distribution_id, get_credentials_from_keychain};
-use crate::thumbnails::{build_thumbnail_specs, ensure_thumbnails_with_progress, parse_galleries_array};
+use crate::thumbnails::{build_thumbnail_specs, cleanup_stale_thumbnails, ensure_thumbnails_with_progress, parse_galleries_array};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
@@ -554,6 +554,10 @@ pub async fn publish_preview(
             eprintln!("[thumbnails] Error generating {}: {}", src.display(), err);
         }
     }
+
+    // Clean up stale local thumbnail cache entries (non-fatal).
+    let thumbnail_cache_root = root.join(".data").join("thumbnails");
+    let _cleaned = cleanup_stale_thumbnails(&thumbnail_cache_root, &specs);
 
     // Build thumb maps for JSON rewriting.
     // photo_thumb_map: source_path → ".thumbs/{filename}.webp"  (used in gallery-details.json)
