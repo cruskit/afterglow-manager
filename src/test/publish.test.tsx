@@ -294,7 +294,7 @@ describe("PublishPreviewDialog", () => {
     expect(screen.getByText("Generating thumbnails...")).toBeInTheDocument();
   });
 
-  it("transitions to scanning state after thumbnail-progress event", async () => {
+  it("shows thumbnail progress during generation", async () => {
     mockInvoke.mockReturnValue(new Promise(() => {})); // Never resolves
     renderWithProviders(
       <PublishPreviewDialog
@@ -309,9 +309,57 @@ describe("PublishPreviewDialog", () => {
 
     expect(screen.getByText("Generating thumbnails...")).toBeInTheDocument();
 
+    // Intermediate progress event
     await act(async () => {
       eventHandlers.get("publish-thumbnail-progress")?.({
-        payload: { generated: 3, skipped: 2, errors: 0 },
+        payload: { current: 2, total: 5, filename: "sunset/photo02.webp" },
+      });
+    });
+
+    expect(screen.getByText("Generating thumbnails (2/5)")).toBeInTheDocument();
+    expect(screen.getByText("sunset/photo02.webp")).toBeInTheDocument();
+  });
+
+  it("transitions to scanning state when thumbnail generation completes", async () => {
+    mockInvoke.mockReturnValue(new Promise(() => {})); // Never resolves
+    renderWithProviders(
+      <PublishPreviewDialog
+        open={true}
+        onClose={() => {}}
+        folderPath="/test"
+        bucket="bucket"
+        region="us-east-1"
+        s3Root="galleries/"
+      />
+    );
+
+    // Final progress event (current === total → done)
+    await act(async () => {
+      eventHandlers.get("publish-thumbnail-progress")?.({
+        payload: { current: 5, total: 5, filename: "sunset/photo05.webp" },
+      });
+    });
+
+    expect(screen.getByText("Scanning files...")).toBeInTheDocument();
+  });
+
+  it("transitions immediately to scanning when there are no thumbnails", async () => {
+    mockInvoke.mockReturnValue(new Promise(() => {})); // Never resolves
+    renderWithProviders(
+      <PublishPreviewDialog
+        open={true}
+        onClose={() => {}}
+        folderPath="/test"
+        bucket="bucket"
+        region="us-east-1"
+        s3Root="galleries/"
+      />
+    );
+
+    // total === 0 → skip straight to scanning
+    await act(async () => {
+      eventHandlers.get("publish-thumbnail-progress")?.({
+        payload: { current: 0, total: 0, filename: "" },
       });
     });
 

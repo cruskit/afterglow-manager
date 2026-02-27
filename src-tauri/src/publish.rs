@@ -1,5 +1,5 @@
 use crate::settings::{extract_bucket_name, extract_distribution_id, get_credentials_from_keychain};
-use crate::thumbnails::{build_thumbnail_specs, ensure_thumbnails, parse_galleries_array};
+use crate::thumbnails::{build_thumbnail_specs, ensure_thumbnails_with_progress, parse_galleries_array};
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::primitives::ByteStream;
@@ -255,9 +255,11 @@ pub struct PublishError {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThumbnailProgress {
-    pub generated: usize,
-    pub skipped: usize,
-    pub errors: usize,
+    /// 1-based index of the thumbnail just processed; 0 means no thumbnails to generate.
+    pub current: usize,
+    pub total: usize,
+    /// Display name shown in the UI, e.g. "sunset/photo01.webp". Empty when total is 0.
+    pub filename: String,
 }
 
 // ===== Publish-time JSON rewriting =====
@@ -512,25 +514,39 @@ pub async fn publish_preview(
     };
 
     let specs = build_thumbnail_specs(&root, &galleries_json, &s3_root);
-    let specs_for_gen = specs.clone();
-    let thumb_results = tokio::task::spawn_blocking(move || ensure_thumbnails(&specs_for_gen))
+    let total_specs = specs.len();
+
+    let thumb_results = if total_specs > 0 {
+        let specs_for_gen = specs.clone();
+        let app_clone = app.clone();
+        tokio::task::spawn_blocking(move || {
+            ensure_thumbnails_with_progress(&specs_for_gen, |current, total, spec| {
+                let _ = app_clone.emit(
+                    "publish-thumbnail-progress",
+                    ThumbnailProgress {
+                        current,
+                        total,
+                        filename: format!("{}/{}", spec.slug, spec.thumb_filename),
+                    },
+                );
+            })
+        })
         .await
-        .map_err(|e| format!("Thumbnail generation panicked: {}", e))?;
+        .map_err(|e| format!("Thumbnail generation panicked: {}", e))?
+    } else {
+        // No thumbnails to generate — emit immediately so the UI transitions to scanning
+        let _ = app.emit(
+            "publish-thumbnail-progress",
+            ThumbnailProgress { current: 0, total: 0, filename: String::new() },
+        );
+        crate::thumbnails::ThumbnailResults { generated: 0, skipped: 0, errors: vec![] }
+    };
 
     if !thumb_results.errors.is_empty() {
         for (src, err) in &thumb_results.errors {
             eprintln!("[thumbnails] Error generating {}: {}", src.display(), err);
         }
     }
-
-    let _ = app.emit(
-        "publish-thumbnail-progress",
-        ThumbnailProgress {
-            generated: thumb_results.generated,
-            skipped: thumb_results.skipped,
-            errors: thumb_results.errors.len(),
-        },
-    );
 
     // Build thumb maps for JSON rewriting.
     // photo_thumb_map: source_path → ".thumbs/{filename}.webp"  (used in gallery-details.json)

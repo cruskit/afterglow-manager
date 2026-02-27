@@ -122,9 +122,11 @@ export interface PublishError {
 }
 
 export interface ThumbnailProgress {
-  generated: number;
-  skipped: number;
-  errors: number;
+  /** 1-based index of the thumbnail just processed; 0 means no thumbnails to generate. */
+  current: number;
+  total: number;
+  /** Display name shown in the UI, e.g. "sunset/photo01.webp". Empty when total is 0. */
+  filename: string;
 }
 
 export type WorkspaceAction =

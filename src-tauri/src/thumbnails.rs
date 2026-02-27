@@ -189,19 +189,30 @@ pub fn generate_thumbnail(source: &Path, dest: &Path) -> Result<(), String> {
 /// Generate or skip thumbnails for all specs.  Failures are non-fatal and
 /// collected in `ThumbnailResults::errors`.
 pub fn ensure_thumbnails(specs: &[ThumbnailSpec]) -> ThumbnailResults {
+    ensure_thumbnails_with_progress(specs, |_, _, _| {})
+}
+
+/// Like `ensure_thumbnails` but calls `on_progress(current_1based, total, spec)` after
+/// each spec is processed (whether generated, skipped, or errored).
+pub fn ensure_thumbnails_with_progress<F>(specs: &[ThumbnailSpec], on_progress: F) -> ThumbnailResults
+where
+    F: Fn(usize, usize, &ThumbnailSpec),
+{
+    let total = specs.len();
     let mut generated = 0;
     let mut skipped = 0;
     let mut errors = Vec::new();
 
-    for spec in specs {
+    for (i, spec) in specs.iter().enumerate() {
         if is_thumbnail_fresh(&spec.source_path, &spec.dest_path) {
             skipped += 1;
-            continue;
+        } else {
+            match generate_thumbnail(&spec.source_path, &spec.dest_path) {
+                Ok(()) => generated += 1,
+                Err(e) => errors.push((spec.source_path.clone(), e)),
+            }
         }
-        match generate_thumbnail(&spec.source_path, &spec.dest_path) {
-            Ok(()) => generated += 1,
-            Err(e) => errors.push((spec.source_path.clone(), e)),
-        }
+        on_progress(i + 1, total, spec);
     }
 
     ThumbnailResults { generated, skipped, errors }

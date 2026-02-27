@@ -14,7 +14,8 @@ interface PublishPreviewDialogProps {
 }
 
 type DialogPhase =
-  | { phase: "loading"; status: "thumbnails" | "scanning" }
+  | { phase: "loading"; status: "thumbnails"; thumbProgress: ThumbnailProgress | null }
+  | { phase: "loading"; status: "scanning" }
   | { phase: "preview"; plan: PublishPlan }
   | { phase: "publishing"; plan: PublishPlan; progress: PublishProgress | null; startTime: number }
   | { phase: "complete"; result: PublishResult }
@@ -29,13 +30,13 @@ export function PublishPreviewDialog({
   region,
   s3Root,
 }: PublishPreviewDialogProps) {
-  const [state, setState] = useState<DialogPhase>({ phase: "loading", status: "thumbnails" });
+  const [state, setState] = useState<DialogPhase>({ phase: "loading", status: "thumbnails", thumbProgress: null });
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const planIdRef = useRef<string | null>(null);
 
   const loadPreview = useCallback(async () => {
-    setState({ phase: "loading", status: "thumbnails" });
+    setState({ phase: "loading", status: "thumbnails", thumbProgress: null });
     try {
       const plan = await publishPreview(folderPath, bucket, region, s3Root);
       planIdRef.current = plan.planId;
@@ -58,11 +59,20 @@ export function PublishPreviewDialog({
   useEffect(() => {
     if (!open) return;
 
-    const unlistenThumbnails = listen<ThumbnailProgress>("publish-thumbnail-progress", () => {
-      setState((prev) => {
-        if (prev.phase !== "loading") return prev;
-        return { phase: "loading", status: "scanning" };
-      });
+    const unlistenThumbnails = listen<ThumbnailProgress>("publish-thumbnail-progress", (event) => {
+      const p = event.payload;
+      // Transition to scanning when all done (total 0 = nothing to generate, or current reached total)
+      if (p.total === 0 || p.current >= p.total) {
+        setState((prev) => {
+          if (prev.phase !== "loading") return prev;
+          return { phase: "loading", status: "scanning" };
+        });
+      } else {
+        setState((prev) => {
+          if (prev.phase !== "loading" || prev.status !== "thumbnails") return prev;
+          return { phase: "loading", status: "thumbnails", thumbProgress: p };
+        });
+      }
     });
 
     const unlistenProgress = listen<PublishProgress>("publish-progress", (event) => {
@@ -166,11 +176,39 @@ export function PublishPreviewDialog({
         <h2 className="text-lg font-semibold mb-4">Publish to S3</h2>
 
         {state.phase === "loading" && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">
-              {state.status === "thumbnails" ? "Generating thumbnails..." : "Scanning files..."}
-            </span>
+          <div className="py-4">
+            {state.status === "thumbnails" ? (
+              state.thumbProgress ? (
+                <>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">
+                      Generating thumbnails ({state.thumbProgress.current}/{state.thumbProgress.total})
+                    </span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2 mb-3">
+                    <div
+                      className="bg-primary h-2 rounded-full transition-all"
+                      style={{
+                        width: `${Math.round((state.thumbProgress.current / state.thumbProgress.total) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-sm text-muted-foreground truncate">
+                    {state.thumbProgress.filename}
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center py-4 gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Generating thumbnails...</span>
+                </div>
+              )
+            ) : (
+              <div className="flex items-center justify-center py-4 gap-2">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Scanning files...</span>
+              </div>
+            )}
           </div>
         )}
 
