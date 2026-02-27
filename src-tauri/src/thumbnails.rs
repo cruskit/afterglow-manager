@@ -218,6 +218,61 @@ where
     ThumbnailResults { generated, skipped, errors }
 }
 
+/// Delete any `.webp` files in `thumbnail_cache_root` that are not listed in `specs`.
+/// Also removes now-empty slug subdirectories. Non-fatal — errors are logged via `eprintln!`.
+/// Returns the number of files deleted. No-op if the cache directory doesn't exist.
+pub fn cleanup_stale_thumbnails(thumbnail_cache_root: &Path, specs: &[ThumbnailSpec]) -> usize {
+    if !thumbnail_cache_root.exists() {
+        return 0;
+    }
+
+    let expected: HashSet<PathBuf> = specs.iter().map(|s| s.dest_path.clone()).collect();
+    let mut deleted = 0usize;
+
+    // Pass 1: delete stale .webp files
+    let Ok(read_dir) = fs::read_dir(thumbnail_cache_root) else {
+        eprintln!("[thumbnails] cleanup: cannot read {:?}", thumbnail_cache_root);
+        return 0;
+    };
+    for entry in read_dir.flatten() {
+        let subdir = entry.path();
+        if !subdir.is_dir() { continue; }
+        let Ok(files) = fs::read_dir(&subdir) else { continue; };
+        for file_entry in files.flatten() {
+            let file_path = file_entry.path();
+            if file_path.extension().and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("webp")).unwrap_or(false)
+                && !expected.contains(&file_path)
+            {
+                match fs::remove_file(&file_path) {
+                    Ok(()) => deleted += 1,
+                    Err(e) => eprintln!("[thumbnails] cleanup: failed to delete {:?}: {}", file_path, e),
+                }
+            }
+        }
+    }
+
+    // Pass 2: remove now-empty slug subdirectories
+    if let Ok(read_dir2) = fs::read_dir(thumbnail_cache_root) {
+        for entry in read_dir2.flatten() {
+            let subdir = entry.path();
+            if subdir.is_dir() {
+                let is_empty = fs::read_dir(&subdir).map(|mut rd| rd.next().is_none()).unwrap_or(false);
+                if is_empty {
+                    if let Err(e) = fs::remove_dir(&subdir) {
+                        eprintln!("[thumbnails] cleanup: failed to remove empty dir {:?}: {}", subdir, e);
+                    }
+                }
+            }
+        }
+    }
+
+    if deleted > 0 {
+        println!("[thumbnails] cleanup: deleted {} stale cache file(s)", deleted);
+    }
+    deleted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,5 +461,54 @@ mod tests {
         let results = ensure_thumbnails(&specs);
         assert_eq!(results.generated, 0);
         assert_eq!(results.skipped, 1);
+    }
+
+    #[test]
+    fn cleanup_stale_thumbnails_no_op_when_cache_missing() {
+        let tmp = TempDir::new().unwrap();
+        let cache = tmp.path().join("does_not_exist");
+        let deleted = cleanup_stale_thumbnails(&cache, &[]);
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn cleanup_stale_thumbnails_removes_stale_keeps_expected() {
+        let tmp = TempDir::new().unwrap();
+        let cache = tmp.path().join("thumbnails");
+        let slug_dir = cache.join("sunset");
+        fs::create_dir_all(&slug_dir).unwrap();
+
+        let stale = slug_dir.join("stale.webp");
+        let kept = slug_dir.join("kept.webp");
+        fs::write(&stale, b"stale").unwrap();
+        fs::write(&kept, b"kept").unwrap();
+
+        let specs = vec![ThumbnailSpec {
+            source_path: tmp.path().join("sunset").join("kept.jpg"),
+            dest_path: kept.clone(),
+            s3_key: "galleries/sunset/.thumbs/kept.webp".to_string(),
+            slug: "sunset".to_string(),
+            thumb_filename: "kept.webp".to_string(),
+        }];
+
+        let deleted = cleanup_stale_thumbnails(&cache, &specs);
+        assert_eq!(deleted, 1);
+        assert!(!stale.exists());
+        assert!(kept.exists());
+    }
+
+    #[test]
+    fn cleanup_stale_thumbnails_removes_empty_subdir() {
+        let tmp = TempDir::new().unwrap();
+        let cache = tmp.path().join("thumbnails");
+        let slug_dir = cache.join("old_gallery");
+        fs::create_dir_all(&slug_dir).unwrap();
+        // Put a stale file so pass 1 deletes it, leaving the dir empty
+        let stale = slug_dir.join("photo.webp");
+        fs::write(&stale, b"x").unwrap();
+
+        let deleted = cleanup_stale_thumbnails(&cache, &[]);
+        assert_eq!(deleted, 1);
+        assert!(!slug_dir.exists());
     }
 }
