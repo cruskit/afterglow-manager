@@ -92,7 +92,7 @@
             html += `<a class="gallery-tile" href="#gallery=${encodeURIComponent(g.slug)}">
               <div class="gallery-tile-info">
                 <div class="gallery-tile-name">${escapeHtml(g.name)}</div>
-                <div class="gallery-tile-date">${escapeHtml(g.date)}</div>
+                <div class="gallery-tile-date">${escapeHtml(formatDate(g.date))}</div>
               </div>
             </a>`;
           }
@@ -132,6 +132,24 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function ordinal(n) {
+    const s = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function formatDate(str) {
+    const match = String(str).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return str;
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const year = parseInt(match[3], 10);
+    const monthNames = ["January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"];
+    if (month < 0 || month > 11) return str;
+    return `${ordinal(day)} ${monthNames[month]} ${year}`;
   }
 
   function showSearchView() {
@@ -190,10 +208,10 @@
         tile.className = "gallery-tile";
         tile.href = `#gallery=${encodeURIComponent(g.slug)}`;
         tile.innerHTML = `
-          <img class="gallery-tile-img" src="${g.cover}" alt="${g.name}" loading="lazy">
+          <img class="gallery-tile-img" src="${g.cover}" alt="${escapeHtml(g.name)}" loading="lazy">
           <div class="gallery-tile-info">
-            <div class="gallery-tile-name">${g.name}</div>
-            <div class="gallery-tile-date">${g.date}</div>
+            <div class="gallery-tile-name">${escapeHtml(g.name)}</div>
+            <div class="gallery-tile-date">${escapeHtml(formatDate(g.date))}</div>
             ${renderTags(g.tags)}
           </div>
         `;
@@ -221,8 +239,8 @@
       header.className = "gallery-header";
       header.innerHTML = `
         <a href="#" class="gallery-back">&larr; Back to galleries</a>
-        <h1 class="gallery-title">${detail.name}</h1>
-        <div class="gallery-date">${detail.date}</div>
+        <h1 class="gallery-title">${escapeHtml(detail.name)}</h1>
+        <div class="gallery-date">${escapeHtml(formatDate(detail.date))}</div>
         ${detail.description ? `<p class="gallery-description">${detail.description}</p>` : ""}
         ${renderTags(detail.tags)}
       `;

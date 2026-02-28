@@ -30,7 +30,10 @@ function isImageFile(filename: string): boolean {
 
 function getMonthYear(): string {
   const now = new Date();
-  return now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = String(now.getFullYear());
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function filenameWithoutExtension(filename: string): string {
