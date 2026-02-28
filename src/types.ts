@@ -149,6 +149,7 @@ export type WorkspaceAction =
   | { type: "REORDER_PHOTOS"; fromIndex: number; toIndex: number }
   | { type: "SET_DIR_IMAGES"; images: string[] }
   | { type: "SET_GALLERY_COUNTS"; counts: Record<string, { tracked: number; total: number }> }
+  | { type: "SET_GALLERY_COUNT"; slug: string; tracked: number; total: number }
   | { type: "SET_ERROR"; error: string | null }
   | { type: "SET_KNOWN_TAGS"; tags: string[] }
   | { type: "RESET" };
