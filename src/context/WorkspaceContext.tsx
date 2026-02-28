@@ -110,12 +110,18 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       galleries.splice(action.toIndex, 0, moved);
       return { ...state, galleries };
     }
-    case "SET_GALLERY_DETAILS":
+    case "SET_GALLERY_DETAILS": {
+      const slug = action.details.slug;
+      const prev = state.galleryCounts[slug];
       return {
         ...state,
         galleryDetails: action.details,
         galleryDetailsLastModified: action.lastModified,
+        galleryCounts: prev
+          ? { ...state.galleryCounts, [slug]: { ...prev, tracked: action.details.photos.length } }
+          : state.galleryCounts,
       };
+    }
     case "UPDATE_GALLERY_DETAILS_HEADER":
       if (!state.galleryDetails) return state;
       return {
@@ -199,6 +205,14 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, currentDirImages: action.images };
     case "SET_GALLERY_COUNTS":
       return { ...state, galleryCounts: action.counts };
+    case "SET_GALLERY_COUNT":
+      return {
+        ...state,
+        galleryCounts: {
+          ...state.galleryCounts,
+          [action.slug]: { tracked: action.tracked, total: action.total },
+        },
+      };
     case "SET_ERROR":
       return { ...state, error: action.error };
     case "SET_KNOWN_TAGS":
@@ -305,21 +319,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!stateRef.current.folderPath) return;
     try {
       const dirPath = `${stateRef.current.folderPath}/${slug}`;
-      const [listing, detailsExist] = await Promise.all([
-        scanDirectory(dirPath),
-        fileExists(`${dirPath}/gallery-details.json`),
-      ]);
+      const listing = await scanDirectory(dirPath);
       const total = listing.images.filter(isImageFile).length;
       let tracked = 0;
-      if (detailsExist) {
-        const raw = await readJsonFile(`${dirPath}/gallery-details.json`);
-        const photos = (raw as { photos?: unknown[] }).photos ?? [];
-        tracked = photos.length;
+      if (stateRef.current.galleryDetails?.slug === slug) {
+        // Use in-memory count to avoid stale disk reads during pending debounced saves
+        tracked = stateRef.current.galleryDetails.photos.length;
+      } else {
+        const detailsExist = await fileExists(`${dirPath}/gallery-details.json`);
+        if (detailsExist) {
+          const raw = await readJsonFile(`${dirPath}/gallery-details.json`);
+          const photos = (raw as { photos?: unknown[] }).photos ?? [];
+          tracked = photos.length;
+        }
       }
-      dispatch({
-        type: "SET_GALLERY_COUNTS",
-        counts: { ...stateRef.current.galleryCounts, [slug]: { tracked, total } },
-      });
+      dispatch({ type: "SET_GALLERY_COUNT", slug, tracked, total });
     } catch {
       // ignore
     }
@@ -487,10 +501,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const newIndex = updatedGalleries.length - 1;
       dispatch({ type: "SELECT_GALLERY", index: newIndex });
 
-      // Refresh subdirectories
+      // Refresh subdirectories and initialize badge for the new gallery
       await loadSubdirectories();
+      refreshGalleryCount(dirName).catch(() => {});
     },
-    [galleriesJsonPath, galleryDetailsJsonPath, loadSubdirectories]
+    [galleriesJsonPath, galleryDetailsJsonPath, loadSubdirectories, refreshGalleryCount]
   );
 
   const addUntrackedImage = useCallback(
