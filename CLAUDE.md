@@ -126,10 +126,14 @@ GitHub Actions (`.github/workflows/ci.yml`): every push runs type check + Vitest
 
 Version must match across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. CI verifies this. Use `scripts/bump-version.sh <new-version>` to update all four files — it also updates the `AfterGlow vX.Y.Z` string in `afterglow-website/index.html`.
 
-**When creating a PR**, always bump the version and include it in the PR commit. Determine the semver bump type from the changes:
-- **patch** (x.y.Z): bug fixes, minor tweaks, docs
-- **minor** (x.Y.0): new features, non-breaking enhancements
-- **major** (X.0.0): breaking changes
+**Do NOT touch version files in feature branches.** CI auto-bumps the version after every merge to main.
+
+Use Conventional Commits in PR titles so CI can determine the bump type:
+- `fix: description` → patch (x.y.Z)
+- `feat: description` → minor (x.Y.0)
+- `feat!: description` or `BREAKING CHANGE:` → major (X.0.0)
+
+The `prepare` CI job parses the merge commit message, runs `bump-version.sh`, commits the result, and pushes using `GITHUB_TOKEN` (which does not trigger a second pipeline run). The `release` job then checks out the bumped commit SHA and builds the release artifacts.
 
 ## Keeping CLAUDE.md Current
 
