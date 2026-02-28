@@ -286,6 +286,25 @@ a {
   font-size: 0.95rem;
 }
 
+.gallery-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.gallery-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.filter-pill.active {
+  background: rgba(201, 168, 76, 0.35);
+  border-color: rgba(201, 168, 76, 0.85);
+  color: #c9a84c;
+}
+
 .gallery-description {
   margin-top: 0.75rem;
   color: var(--text-muted);
