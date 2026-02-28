@@ -16,7 +16,8 @@ export function TagInput({ tags, knownTags, onChange, placeholder = "Add tag…"
   const containerRef = useRef<HTMLDivElement>(null);
 
   const suggestions = knownTags.filter(
-    (t) => t.toLowerCase().includes(inputValue.toLowerCase()) && !tags.includes(t)
+    (t) => t.toLowerCase().includes(inputValue.toLowerCase()) &&
+           !tags.some(s => s.toLowerCase() === t.toLowerCase())
   );
 
   // Compute dropdown position from the container's current layout
@@ -28,16 +29,17 @@ export function TagInput({ tags, knownTags, onChange, placeholder = "Add tag…"
 
   const addTag = useCallback(
     (raw: string) => {
-      const tag = raw.trim().toLowerCase();
-      if (!tag || tags.includes(tag)) {
+      const tag = raw.trim();
+      if (!tag || tags.some(t => t.toLowerCase() === tag.toLowerCase())) {
         setInputValue("");
         return;
       }
-      onChange([...tags, tag]);
+      const canonical = knownTags.find(t => t.toLowerCase() === tag.toLowerCase()) ?? tag;
+      onChange([...tags, canonical]);
       setInputValue("");
       setHighlightedIndex(-1);
     },
-    [tags, onChange]
+    [tags, onChange, knownTags]
   );
 
   const removeTag = useCallback(

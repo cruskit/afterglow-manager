@@ -292,6 +292,39 @@ describe("TagInput", () => {
     expect(onChange).toHaveBeenCalledWith(["sunset"]);
   });
 
+  it("preserves tag case as entered", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <TagInput tags={[]} knownTags={[]} onChange={onChange} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Wildlife" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(["Wildlife"]);
+  });
+
+  it("reuses canonical casing from knownTags when adding a tag", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <TagInput tags={[]} knownTags={["Wildlife"]} onChange={onChange} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "WILDLIFE" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(["Wildlife"]);
+  });
+
+  it("does not add a duplicate tag (case-insensitive)", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <TagInput tags={["Wildlife"]} knownTags={[]} onChange={onChange} />
+    );
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "wildlife" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("shows suggestions filtered by input", () => {
     renderWithProviders(
       <TagInput tags={[]} knownTags={["landscape", "sunset", "portrait"]} onChange={() => {}} />
