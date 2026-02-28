@@ -42,9 +42,69 @@ jobs:
       - name: Run tests
         run: npm test
 
-  release:
+  prepare:
     if: github.ref == 'refs/heads/main'
     needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_sha: ${{ steps.push.outputs.sha }}
+      new_version: ${{ steps.compute.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Determine bump type from commit message
+        id: bump-type
+        run: |
+          MSG=$(git log -1 --format="%s %b")
+          if echo "$MSG" | grep -qiE 'BREAKING[ -]CHANGE|^\w+(\(.*\))?!:'; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+          elif echo "$MSG" | grep -qE '^feat(\([^)]*\))?:'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute new version
+        id: compute
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "${{ steps.bump-type.outputs.type }}" in
+            major) NEW="$((MAJOR+1)).0.0" ;;
+            minor) NEW="$MAJOR.$((MINOR+1)).0" ;;
+            patch) NEW="$MAJOR.$MINOR.$((PATCH+1))" ;;
+          esac
+          echo "new_version=$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version files
+        run: ./scripts/bump-version.sh ${{ steps.compute.outputs.new_version }}
+
+      - name: Commit and push
+        id: push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock afterglow-website/index.html
+          git commit -m "chore: bump version to ${{ steps.compute.outputs.new_version }}"
+          git push
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: [prepare]
     environment: production
     permissions:
       contents: write
@@ -60,6 +120,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.new_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
