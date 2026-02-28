@@ -121,3 +121,12 @@ Version must match across `package.json`, `src-tauri/tauri.conf.json`, and `src-
 - **patch** (x.y.Z): bug fixes, minor tweaks, docs
 - **minor** (x.Y.0): new features, non-breaking enhancements
 - **major** (X.0.0): breaking changes
+
+## Keeping CLAUDE.md Current
+
+After implementing any new feature, update this file to reflect the change. Specifically:
+
+- Add or update the relevant section (Architecture, Data Model, Conventions, etc.) to describe new modules, IPC commands, components, or data structures
+- If a feature introduces a new pattern (e.g., a new managed state type, a new event flow, a new publish-time transform), document it the same way existing patterns are documented above
+- Version-tag notable features inline (e.g., `(v1.9.0+)`) so the history is traceable
+- Remove or correct any sections that are no longer accurate after a refactor or removal
