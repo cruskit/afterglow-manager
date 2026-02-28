@@ -236,12 +236,26 @@
       const detail = await fetchGalleryDetail(slug);
       currentPhotos = detail.photos;
 
+      const photoTags = [...new Set(
+        detail.photos.flatMap(p => p.tags || [])
+      )].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
       const header = document.createElement("div");
       header.className = "gallery-header";
+
+      const metaRowHtml = photoTags.length
+        ? `<div class="gallery-meta-row">
+             <div class="gallery-date">${escapeHtml(formatDate(detail.date))}</div>
+             <div class="gallery-filter">
+               ${photoTags.map(t => `<button class="tag-pill filter-pill" data-tag="${escapeHtml(t.toLowerCase())}">${escapeHtml(t)}</button>`).join("")}
+             </div>
+           </div>`
+        : `<div class="gallery-date">${escapeHtml(formatDate(detail.date))}</div>`;
+
       header.innerHTML = `
         <a href="#" class="gallery-back">&larr; Back to galleries</a>
         <h1 class="gallery-title">${escapeHtml(detail.name)}</h1>
-        <div class="gallery-date">${escapeHtml(formatDate(detail.date))}</div>
+        ${metaRowHtml}
         ${detail.description ? `<p class="gallery-description">${detail.description}</p>` : ""}
         ${renderTags(detail.tags)}
       `;
@@ -252,6 +266,9 @@
       detail.photos.forEach((photo, index) => {
         const item = document.createElement("div");
         item.className = "masonry-item";
+        if (photo.tags && photo.tags.length) {
+          item.dataset.tags = photo.tags.map(t => t.toLowerCase()).join(",");
+        }
         item.innerHTML = `<img src="${photo.thumbnail}" alt="${photo.alt || ""}" loading="lazy">`;
         item.addEventListener("click", () => openLightbox(index));
         masonry.appendChild(item);
@@ -260,6 +277,30 @@
       app.innerHTML = "";
       app.appendChild(header);
       app.appendChild(masonry);
+
+      if (photoTags.length) {
+        const activeFilters = new Set();
+        header.querySelectorAll(".filter-pill").forEach(pill => {
+          pill.addEventListener("click", () => {
+            const tag = pill.dataset.tag;
+            if (activeFilters.has(tag)) {
+              activeFilters.delete(tag);
+              pill.classList.remove("active");
+            } else {
+              activeFilters.add(tag);
+              pill.classList.add("active");
+            }
+            masonry.querySelectorAll(".masonry-item").forEach(item => {
+              if (activeFilters.size === 0) {
+                item.hidden = false;
+              } else {
+                const itemTags = item.dataset.tags ? item.dataset.tags.split(",") : [];
+                item.hidden = !itemTags.some(t => activeFilters.has(t));
+              }
+            });
+          });
+        });
+      }
 
       if (photoId) {
         const prefixedId = `galleries/${slug}/${photoId}`;
