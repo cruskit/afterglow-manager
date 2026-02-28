@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import type { WorkspaceState, WorkspaceAction, GalleryEntry, PhotoEntry, GalleryDetails } from "../types";
 
+function mergeKnownTags(existing: string[], incoming: string[]): string[] {
+  const result = [...existing];
+  for (const tag of incoming) {
+    if (!result.some(t => t.toLowerCase() === tag.toLowerCase())) {
+      result.push(tag);
+    }
+  }
+  return result.sort();
+}
+
 // Extract the reducer logic by reimplementing it for testing
 // (since it's not exported separately, we test the logic directly)
 function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
@@ -39,7 +49,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       galleries[action.index] = { ...galleries[action.index], ...entryG };
       const newTagsG = entryG.tags ?? [];
       const knownTagsG = newTagsG.length > 0
-        ? [...new Set([...state.knownTags, ...newTagsG])].sort()
+        ? mergeKnownTags(state.knownTags, newTagsG)
         : state.knownTags;
       const galleryDetails =
         entryG.date !== undefined && state.galleryDetails?.slug === galleries[action.index].slug
@@ -85,7 +95,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       photos[action.index] = updated;
       const newTagsP = entryP.tags ?? [];
       const knownTagsP = newTagsP.length > 0
-        ? [...new Set([...state.knownTags, ...newTagsP])].sort()
+        ? mergeKnownTags(state.knownTags, newTagsP)
         : state.knownTags;
       return {
         ...state,
@@ -321,6 +331,21 @@ describe("workspaceReducer", () => {
       expect(state.knownTags).toEqual(["existing", "landscape"]);
     });
 
+    it("deduplicates knownTags case-insensitively (first-occurrence casing wins)", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery()],
+        knownTags: ["sunset"],
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY",
+        index: 0,
+        entry: { tags: ["Sunset"] },
+      });
+      // "Sunset" matches existing "sunset" — existing casing wins
+      expect(state.knownTags).toEqual(["sunset"]);
+    });
+
     it("omits tags from gallery when empty array", () => {
       const prev = {
         ...makeInitialState(),
@@ -480,6 +505,21 @@ describe("workspaceReducer", () => {
       });
       expect(state.galleryDetails?.photos[0].tags).toEqual(["sunset", "nature"]);
       expect(state.knownTags).toEqual(["nature", "sunset"]);
+    });
+
+    it("deduplicates knownTags case-insensitively (first-occurrence casing wins)", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleryDetails: makeDetails({ photos: [makePhoto()] }),
+        knownTags: ["Nature"],
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_PHOTO",
+        index: 0,
+        entry: { tags: ["NATURE"] },
+      });
+      // "NATURE" matches existing "Nature" — existing casing wins
+      expect(state.knownTags).toEqual(["Nature"]);
     });
 
     it("omits tags from photo when empty array", () => {

@@ -49,7 +49,7 @@ npm run tauri build
 - `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Syncs gallery data files (reachable from `galleries.json`) plus the bundled website assets from `s3Root` (the `afterglow-website/` directory). Also generates and publishes `galleries/search-index.json` at publish time. At publish time, generates WebP thumbnails and rewrites JSON paths (see Thumbnail Generation below).
 - `thumbnails.rs` — Thumbnail generation: `build_thumbnail_specs`, `ensure_thumbnails`, `generate_thumbnail`, `is_thumbnail_fresh`. Invoked from `publish_preview`.
 
-**Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open). `DateInput` (`src/components/DateInput.tsx`) is a date picker used in `GalleryInfoPane` and `GalleryHeader` — text input with `dd/MM/yyyy` format, a `CalendarDays` icon button, and a calendar popover rendered via `createPortal` (see Gallery Date Picker below). `AppShell` also manages the fs watcher lifecycle (start on workspace open, stop on close) and handles `workspace-fs-change` events. `UntrackedImageGrid` (`src/components/UntrackedImageGrid.tsx`) renders untracked images as a 2-column thumbnail grid in the image info pane — double-click to add an image, with "Add All" support. The generic `UntrackedList` component handles untracked galleries (text list).
+**Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open). Tag casing is preserved as entered; first-occurrence casing wins when the same tag (case-insensitive) is entered again — `TagInput.addTag` resolves canonical casing from `knownTags`. The `mergeKnownTags` helper in `WorkspaceContext.tsx` does case-insensitive deduplication when updating `knownTags` in `UPDATE_GALLERY` and `UPDATE_PHOTO`. Website search (`app.js` `matchesItem`) matches tags case-insensitively (query tags are always lowercased; stored tags may have mixed case). `DateInput` (`src/components/DateInput.tsx`) is a date picker used in `GalleryInfoPane` and `GalleryHeader` — text input with `dd/MM/yyyy` format, a `CalendarDays` icon button, and a calendar popover rendered via `createPortal` (see Gallery Date Picker below). `AppShell` also manages the fs watcher lifecycle (start on workspace open, stop on close) and handles `workspace-fs-change` events. `UntrackedImageGrid` (`src/components/UntrackedImageGrid.tsx`) renders untracked images as a 2-column thumbnail grid in the image info pane — double-click to add an image, with "Add All" support. The generic `UntrackedList` component handles untracked galleries (text list).
 
 ## Data Model
 
@@ -147,10 +147,14 @@ GitHub Actions (`.github/workflows/ci.yml`): every push runs type check + Vitest
 
 Version must match across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. CI verifies this. Use `scripts/bump-version.sh <new-version>` to update all four files — it also updates the `AfterGlow vX.Y.Z` string in `afterglow-website/index.html`.
 
-**When creating a PR**, always bump the version and include it in the PR commit. Determine the semver bump type from the changes:
-- **patch** (x.y.Z): bug fixes, minor tweaks, docs
-- **minor** (x.Y.0): new features, non-breaking enhancements
-- **major** (X.0.0): breaking changes
+**Do NOT touch version files in feature branches.** CI auto-bumps the version after every merge to main.
+
+Use Conventional Commits in PR titles so CI can determine the bump type:
+- `fix: description` → patch (x.y.Z)
+- `feat: description` → minor (x.Y.0)
+- `feat!: description` or `BREAKING CHANGE:` → major (X.0.0)
+
+The `prepare` CI job parses the merge commit message, runs `bump-version.sh`, commits the result, and pushes using `GITHUB_TOKEN` (which does not trigger a second pipeline run). The `release` job then checks out the bumped commit SHA and builds the release artifacts.
 
 ## Keeping CLAUDE.md Current
 

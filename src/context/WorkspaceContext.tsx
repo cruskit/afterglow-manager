@@ -59,6 +59,16 @@ const initialState: WorkspaceState = {
   knownTags: [],
 };
 
+function mergeKnownTags(existing: string[], incoming: string[]): string[] {
+  const result = [...existing];
+  for (const tag of incoming) {
+    if (!result.some(t => t.toLowerCase() === tag.toLowerCase())) {
+      result.push(tag);
+    }
+  }
+  return result.sort();
+}
+
 function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
   switch (action.type) {
     case "SET_FOLDER":
@@ -97,7 +107,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       galleries[action.index] = { ...galleries[action.index], ...entry };
       const newTags = entry.tags ?? [];
       const knownTags = newTags.length > 0
-        ? [...new Set([...state.knownTags, ...newTags])].sort()
+        ? mergeKnownTags(state.knownTags, newTags)
         : state.knownTags;
       const galleryDetails =
         entry.date !== undefined && state.galleryDetails?.slug === galleries[action.index].slug
@@ -154,7 +164,7 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       photos[action.index] = updated;
       const newTags = photoEntry.tags ?? [];
       const knownTags = newTags.length > 0
-        ? [...new Set([...state.knownTags, ...newTags])].sort()
+        ? mergeKnownTags(state.knownTags, newTags)
         : state.knownTags;
       return {
         ...state,

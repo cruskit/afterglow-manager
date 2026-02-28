@@ -59,7 +59,7 @@
   }
 
   function matchesItem(item, fields, { tags, terms }) {
-    if (tags.length && !tags.every((t) => (item.tags || []).includes(t))) return false;
+    if (tags.length && !tags.every((t) => (item.tags || []).some(it => it.toLowerCase() === t))) return false;
     if (terms.length && !terms.every((t) => fields.some((f) => f.toLowerCase().includes(t)))) return false;
     return true;
   }
