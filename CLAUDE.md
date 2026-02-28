@@ -85,6 +85,15 @@ Rust unit tests are inline in `settings.rs`, `publish.rs`, and `thumbnails.rs`.
 - `handleFsChange` dispatches: `dir-created` → `loadSubdirectories()`; `dir-removed` → reload sidebar + delete from `galleries.json` if tracked; `image-created` → reload dir images + refresh count; `image-removed` → reload dir images + auto-remove from `galleryDetails` state (if currently viewing) or disk (if not), + refresh count
 - `WorkspaceContext` exposes `refreshGalleryCount(slug)` — re-scans a single gallery dir and updates `galleryCounts` for that slug only
 
+## Lightbox Layout & Download (v1.11.0+)
+
+The lightbox uses a **column flex layout** so tags always appear below the image with no overlap:
+- `.lightbox` is `flex-direction: column; align-items: stretch`
+- `.lightbox-img-container` has `flex: 1; overflow: hidden` and `max-height: 100%` on the image
+- `.lightbox-footer` sits below the image container: `display: flex; align-items: center; justify-content: center` with tags (`.lightbox-caption`) and a download button (`.lightbox-download`) side by side
+
+**Download button**: uses `fetch()` + `URL.createObjectURL()` to trigger a blob download of the full-resolution image. Falls back to `window.open()` if CORS is not configured. Requires CloudFront Response headers policy set to **SimpleCORS** (`Access-Control-Allow-Origin: *`) for cross-origin fetch to work.
+
 ## Thumbnail Generation (v1.7.0+)
 
 At publish time, `publish_preview` generates WebP thumbnails for all referenced images:

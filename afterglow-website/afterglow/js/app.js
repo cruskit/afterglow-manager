@@ -9,6 +9,7 @@
   const lightboxClose = lightboxEl.querySelector(".lightbox-close");
   const lightboxPrev = lightboxEl.querySelector(".lightbox-prev");
   const lightboxNext = lightboxEl.querySelector(".lightbox-next");
+  const lightboxDownload = document.getElementById("lightbox-download");
 
   // ===== Data Cache =====
   let galleriesCache = null;
@@ -245,6 +246,24 @@
     }
   }
 
+  // ===== Lightbox Download =====
+  async function downloadPhoto(photo) {
+    const url = photo.full;
+    const filename = url.split("/").pop() || "photo.jpg";
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (_e) {
+      window.open(url, "_blank");
+    }
+  }
+
   // ===== Lightbox Controller =====
   function openLightbox(index) {
     currentIndex = index;
@@ -268,6 +287,7 @@
 
     const captionEl = document.getElementById("lightbox-caption");
     if (captionEl) captionEl.innerHTML = renderTags(photo.tags);
+    if (lightboxDownload) lightboxDownload.onclick = () => downloadPhoto(photo);
 
     const img = new Image();
     img.src = photo.full;
