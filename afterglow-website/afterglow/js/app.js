@@ -101,7 +101,7 @@
         if (matchedPhotos.length > 0) {
           html += `<div class="search-section"><h2 class="search-section-title">Photos (${matchedPhotos.length})</h2><div class="search-photo-grid">`;
           for (const p of matchedPhotos) {
-            html += `<a class="search-photo-thumb" href="#gallery=${encodeURIComponent(p.gallerySlug)}">
+            html += `<a class="search-photo-thumb" href="#gallery=${encodeURIComponent(p.gallerySlug)}&photo=${encodeURIComponent(p.thumbnail)}">
               <img src="galleries/${escapeHtml(p.gallerySlug)}/${escapeHtml(p.thumbnail)}" alt="${escapeHtml(p.alt)}" loading="lazy">
               <div class="search-photo-caption">${escapeHtml(p.alt || p.gallerySlug)}</div>
             </a>`;
@@ -169,20 +169,21 @@
     const params = new URLSearchParams(hash);
     const gallery = params.get("gallery");
     const search = params.get("search");
-    if (gallery) return { view: "gallery", gallery };
+    const photo = params.get("photo");
+    if (gallery) return { view: "gallery", gallery, photo };
     if (search !== null) return { view: "search", query: search };
     return { view: "home" };
   }
 
   async function route() {
-    const { view, gallery, query } = getRoute();
+    const { view, gallery, query, photo } = getRoute();
     if (view === "search") {
       searchInput.value = query || "";
       await renderSearch(query || "");
     } else if (view === "gallery" && gallery) {
       showGalleryView();
       searchInput.value = "";
-      await renderGallery(gallery);
+      await renderGallery(gallery, photo);
     } else {
       showGalleryView();
       searchInput.value = "";
@@ -229,7 +230,7 @@
   let currentPhotos = [];
   let currentIndex = 0;
 
-  async function renderGallery(slug) {
+  async function renderGallery(slug, photoId) {
     app.innerHTML = '<div class="loading">Loading gallery&hellip;</div>';
     try {
       const detail = await fetchGalleryDetail(slug);
@@ -259,6 +260,12 @@
       app.innerHTML = "";
       app.appendChild(header);
       app.appendChild(masonry);
+
+      if (photoId) {
+        const prefixedId = `galleries/${slug}/${photoId}`;
+        const index = currentPhotos.findIndex((p) => p.thumbnail === prefixedId);
+        if (index !== -1) openLightbox(index);
+      }
     } catch (e) {
       app.innerHTML = '<div class="loading">Failed to load gallery.</div>';
     }
