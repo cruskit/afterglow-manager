@@ -109,7 +109,7 @@ export function TagInput({ tags, knownTags, onChange, placeholder = "Add tag…"
           {tags.map((tag, i) => (
             <span
               key={tag}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[#c9a84c]/20 text-[#c9a84c] border border-[#c9a84c]/40"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-[#c9a84c]/10 text-foreground border border-[#c9a84c]/60"
             >
               {tag}
               <button
