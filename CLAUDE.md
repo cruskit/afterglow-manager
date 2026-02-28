@@ -49,13 +49,14 @@ npm run tauri build
 - `publish.rs` — S3 sync: preview plan generation, execute with progress events, cancel support. Syncs gallery data files (reachable from `galleries.json`) plus the bundled website assets from `s3Root` (the `afterglow-website/` directory). Also generates and publishes `galleries/search-index.json` at publish time. At publish time, generates WebP thumbnails and rewrites JSON paths (see Thumbnail Generation below).
 - `thumbnails.rs` — Thumbnail generation: `build_thumbnail_specs`, `ensure_thumbnails`, `generate_thumbnail`, `is_thumbnail_fresh`. Invoked from `publish_preview`.
 
-**Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open). Tag casing is preserved as entered; first-occurrence casing wins when the same tag (case-insensitive) is entered again — `TagInput.addTag` resolves canonical casing from `knownTags`. The `mergeKnownTags` helper in `WorkspaceContext.tsx` does case-insensitive deduplication when updating `knownTags` in `UPDATE_GALLERY` and `UPDATE_PHOTO`. Website search (`app.js` `matchesItem`) matches tags case-insensitively (query tags are always lowercased; stored tags may have mixed case). `AppShell` also manages the fs watcher lifecycle (start on workspace open, stop on close) and handles `workspace-fs-change` events. `UntrackedImageGrid` (`src/components/UntrackedImageGrid.tsx`) renders untracked images as a 2-column thumbnail grid in the image info pane — double-click to add an image, with "Add All" support. The generic `UntrackedList` component handles untracked galleries (text list).
+**Frontend layout:** 3-column structure in `AppShell.tsx` — tree sidebar, tile grid (galleries or images), and info/edit pane. Uses `@dnd-kit` for drag-and-drop reordering, Shadcn/ui components with Tailwind, and Sonner for toasts. `TagInput` (`src/components/TagInput.tsx`) is a multi-tag autocomplete component used in both info panes, with suggestions drawn from `state.knownTags` (populated via `get_all_tags` IPC on workspace open). Tag casing is preserved as entered; first-occurrence casing wins when the same tag (case-insensitive) is entered again — `TagInput.addTag` resolves canonical casing from `knownTags`. The `mergeKnownTags` helper in `WorkspaceContext.tsx` does case-insensitive deduplication when updating `knownTags` in `UPDATE_GALLERY` and `UPDATE_PHOTO`. Website search (`app.js` `matchesItem`) matches tags case-insensitively (query tags are always lowercased; stored tags may have mixed case). `DateInput` (`src/components/DateInput.tsx`) is a date picker used in `GalleryInfoPane` and `GalleryHeader` — text input with `dd/MM/yyyy` format, a `CalendarDays` icon button, and a calendar popover rendered via `createPortal` (see Gallery Date Picker below). `AppShell` also manages the fs watcher lifecycle (start on workspace open, stop on close) and handles `workspace-fs-change` events. `UntrackedImageGrid` (`src/components/UntrackedImageGrid.tsx`) renders untracked images as a 2-column thumbnail grid in the image info pane — double-click to add an image, with "Add All" support. The generic `UntrackedList` component handles untracked galleries (text list).
 
 ## Data Model
 
 - `galleries.json` at workspace root: `{ schemaVersion, galleries: [{ name, slug, date, cover, tags? }] }`
 - `gallery-details.json` inside each gallery subfolder: `{ schemaVersion, name, slug, date, description, photos: [{ thumbnail, full, alt, tags? }] }`
 - Both files include a `schemaVersion` field (currently `1`). On load, `src/migrations.ts` detects old formats (v0 = no `schemaVersion`) and migrates them automatically, then re-saves.
+- `date` field stored as `dd/MM/yyyy` (e.g. `"28/02/2026"`). Old free-text values (e.g. `"February 2026"`) are backward-compatible — the manager shows them as-is without error; the website renders them unchanged.
 - `tags` is optional on both `GalleryEntry` and `PhotoEntry`. Omitted from JSON when empty (no noise for untagged galleries/photos). Missing `tags` is treated as `[]`.
 - Supported image extensions: jpg, jpeg, png, gif, webp, avif, bmp, tiff, tif
 
@@ -84,6 +85,26 @@ Rust unit tests are inline in `settings.rs`, `publish.rs`, and `thumbnails.rs`.
 - `AppShell.tsx` uses `useRef(state)` (stateRef pattern) for non-stale event handler access
 - `handleFsChange` dispatches: `dir-created` → `loadSubdirectories()`; `dir-removed` → reload sidebar + delete from `galleries.json` if tracked; `image-created` → reload dir images + refresh count; `image-removed` → reload dir images + auto-remove from `galleryDetails` state (if currently viewing) or disk (if not), + refresh count
 - `WorkspaceContext` exposes `refreshGalleryCount(slug)` — re-scans a single gallery dir and updates `galleryCounts` for that slug only
+
+## Gallery Date Picker (v1.12.0+)
+
+Gallery dates are stored and edited as `dd/MM/yyyy` strings. The `DateInput` component (`src/components/DateInput.tsx`) is used in both `GalleryInfoPane` and `GalleryHeader`.
+
+**DateInput behavior:**
+- Text input with `placeholder="dd/MM/yyyy"` and a `CalendarDays` icon button (lucide-react)
+- Calendar popover rendered via `createPortal` into `document.body`, positioned fixed below the input using `getBoundingClientRect()`
+- Week starts Monday; selected day highlighted in `bg-[#c9a84c] text-[#0e0e0e]`; today (unselected) in accent border
+- `onMouseDown` + `e.preventDefault()` on all calendar buttons prevents input blur before day selection fires
+- Validation on blur: non-empty input that fails `dd/MM/yyyy` parse → `border-destructive` + "Use dd/MM/yyyy format" helper text; empty or valid → no error
+- `useEffect([value])` syncs `inputText` when parent value changes (e.g. selecting a different gallery)
+- Old free-text dates (e.g. `"February 2026"`) are shown as-is in the input and do not trigger an error on blur
+
+**Website rendering (`app.js`):**
+- `formatDate(str)` converts `dd/MM/yyyy` → long form (e.g. `"12th January 2026"`) using `ordinal(n)` helper
+- Falls back to `str` for non-matching input (backward compat for old format dates)
+- Applied in: search results gallery tiles, homepage gallery tiles, gallery detail header
+
+**`getMonthYear()` in `WorkspaceContext.tsx`** returns today as `dd/MM/yyyy` for new gallery defaults.
 
 ## Lightbox Layout & Download (v1.11.0+)
 

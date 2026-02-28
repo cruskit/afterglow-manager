@@ -1,8 +1,9 @@
 import { useCallback } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { DateInput } from "./DateInput";
 
 export function GalleryHeader() {
-  const { state, dispatch, debouncedSaveGalleryDetails } = useWorkspace();
+  const { state, dispatch, debouncedSaveGalleryDetails, debouncedSaveGalleries } = useWorkspace();
   const { galleryDetails } = state;
 
   const handleChange = useCallback(
@@ -14,7 +15,8 @@ export function GalleryHeader() {
 
   const handleBlur = useCallback(() => {
     debouncedSaveGalleryDetails();
-  }, [debouncedSaveGalleryDetails]);
+    debouncedSaveGalleries();
+  }, [debouncedSaveGalleryDetails, debouncedSaveGalleries]);
 
   if (!galleryDetails) return null;
 
@@ -33,12 +35,10 @@ export function GalleryHeader() {
         </div>
         <div>
           <label className="block text-xs text-muted-foreground mb-1">Date</label>
-          <input
-            type="text"
+          <DateInput
             value={galleryDetails.date}
-            onChange={(e) => handleChange("date", e.target.value)}
+            onChange={(val) => handleChange("date", val)}
             onBlur={handleBlur}
-            className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
         <div>

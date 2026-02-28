@@ -3,9 +3,10 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { UntrackedList } from "./UntrackedList";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { TagInput } from "./TagInput";
+import { DateInput } from "./DateInput";
 
 export function GalleryInfoPane() {
-  const { state, dispatch, debouncedSaveGalleries, addUntrackedGallery, saveGalleries } = useWorkspace();
+  const { state, dispatch, debouncedSaveGalleries, addUntrackedGallery, saveGalleries, syncGalleryDateToDetails } = useWorkspace();
   const { galleries, selectedGalleryIndex, subdirectories, knownTags } = state;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +37,12 @@ export function GalleryInfoPane() {
   const handleBlur = useCallback(() => {
     debouncedSaveGalleries();
   }, [debouncedSaveGalleries]);
+
+  const handleDateBlur = useCallback(() => {
+    if (selectedGalleryIndex === null) return;
+    debouncedSaveGalleries();
+    syncGalleryDateToDetails(selectedGalleryIndex);
+  }, [selectedGalleryIndex, debouncedSaveGalleries, syncGalleryDateToDetails]);
 
   const handleDelete = useCallback(async () => {
     if (selectedGalleryIndex === null) return;
@@ -71,13 +78,13 @@ export function GalleryInfoPane() {
           />
 
           <label className="block text-xs text-muted-foreground mb-1">Date</label>
-          <input
-            type="text"
-            value={selectedGallery.date}
-            onChange={(e) => handleFieldChange("date", e.target.value)}
-            onBlur={handleBlur}
-            className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-background mb-3 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
+          <div className="mb-3">
+            <DateInput
+              value={selectedGallery.date}
+              onChange={(val) => handleFieldChange("date", val)}
+              onBlur={handleDateBlur}
+            />
+          </div>
 
           <label className="block text-xs text-muted-foreground mb-1">Slug</label>
           <p className="text-sm text-foreground/70 mb-4">{selectedGallery.slug}</p>

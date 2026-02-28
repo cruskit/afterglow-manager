@@ -51,7 +51,11 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       const knownTagsG = newTagsG.length > 0
         ? mergeKnownTags(state.knownTags, newTagsG)
         : state.knownTags;
-      return { ...state, galleries, knownTags: knownTagsG };
+      const galleryDetails =
+        entryG.date !== undefined && state.galleryDetails?.slug === galleries[action.index].slug
+          ? { ...state.galleryDetails, date: entryG.date }
+          : state.galleryDetails;
+      return { ...state, galleries, knownTags: knownTagsG, galleryDetails };
     }
     case "DELETE_GALLERY": {
       const galleries = state.galleries.filter((_, i) => i !== action.index);
@@ -71,12 +75,16 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
         galleryDetails: action.details,
         galleryDetailsLastModified: action.lastModified,
       };
-    case "UPDATE_GALLERY_DETAILS_HEADER":
+    case "UPDATE_GALLERY_DETAILS_HEADER": {
       if (!state.galleryDetails) return state;
-      return {
-        ...state,
-        galleryDetails: { ...state.galleryDetails, ...action.updates },
-      };
+      const updatedDetails = { ...state.galleryDetails, ...action.updates };
+      const galleries = action.updates.date !== undefined
+        ? state.galleries.map((g) =>
+            g.slug === state.galleryDetails!.slug ? { ...g, date: action.updates.date! } : g
+          )
+        : state.galleries;
+      return { ...state, galleryDetails: updatedDetails, galleries };
+    }
     case "UPDATE_PHOTO": {
       if (!state.galleryDetails) return state;
       const photos = [...state.galleryDetails.photos];
@@ -350,6 +358,36 @@ describe("workspaceReducer", () => {
       });
       expect(state.galleries[0].tags).toBeUndefined();
     });
+
+    it("syncs date to galleryDetails when slug matches", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery({ slug: "test-gallery", date: "01/01/2025" })],
+        galleryDetails: makeDetails({ slug: "test-gallery", date: "01/01/2025" }),
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY",
+        index: 0,
+        entry: { date: "15/06/2025" },
+      });
+      expect(state.galleries[0].date).toBe("15/06/2025");
+      expect(state.galleryDetails?.date).toBe("15/06/2025");
+    });
+
+    it("does not touch galleryDetails date when slug does not match", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery({ slug: "test-gallery", date: "01/01/2025" })],
+        galleryDetails: makeDetails({ slug: "other-gallery", date: "01/01/2025" }),
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY",
+        index: 0,
+        entry: { date: "15/06/2025" },
+      });
+      expect(state.galleries[0].date).toBe("15/06/2025");
+      expect(state.galleryDetails?.date).toBe("01/01/2025");
+    });
   });
 
   describe("DELETE_GALLERY", () => {
@@ -422,6 +460,34 @@ describe("workspaceReducer", () => {
         updates: { name: "X" },
       });
       expect(state.galleryDetails).toBeNull();
+    });
+
+    it("syncs date back to matching gallery in galleries list", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery({ slug: "test", date: "01/01/2025" }), makeGallery({ slug: "other", date: "01/01/2025" })],
+        galleryDetails: makeDetails({ slug: "test", date: "01/01/2025" }),
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY_DETAILS_HEADER",
+        updates: { date: "20/07/2025" },
+      });
+      expect(state.galleryDetails?.date).toBe("20/07/2025");
+      expect(state.galleries[0].date).toBe("20/07/2025");
+      expect(state.galleries[1].date).toBe("01/01/2025");
+    });
+
+    it("does not alter galleries when date is not in updates", () => {
+      const prev = {
+        ...makeInitialState(),
+        galleries: [makeGallery({ slug: "test", date: "01/01/2025" })],
+        galleryDetails: makeDetails({ slug: "test", date: "01/01/2025" }),
+      };
+      const state = workspaceReducer(prev, {
+        type: "UPDATE_GALLERY_DETAILS_HEADER",
+        updates: { name: "New Name" },
+      });
+      expect(state.galleries[0].date).toBe("01/01/2025");
     });
   });
 

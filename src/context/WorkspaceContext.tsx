@@ -30,7 +30,10 @@ function isImageFile(filename: string): boolean {
 
 function getMonthYear(): string {
   const now = new Date();
-  return now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = String(now.getFullYear());
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function filenameWithoutExtension(filename: string): string {
@@ -106,7 +109,11 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       const knownTags = newTags.length > 0
         ? mergeKnownTags(state.knownTags, newTags)
         : state.knownTags;
-      return { ...state, galleries, knownTags };
+      const galleryDetails =
+        entry.date !== undefined && state.galleryDetails?.slug === galleries[action.index].slug
+          ? { ...state.galleryDetails, date: entry.date }
+          : state.galleryDetails;
+      return { ...state, galleries, knownTags, galleryDetails };
     }
     case "DELETE_GALLERY": {
       const galleries = state.galleries.filter((_, i) => i !== action.index);
@@ -132,12 +139,16 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
           : state.galleryCounts,
       };
     }
-    case "UPDATE_GALLERY_DETAILS_HEADER":
+    case "UPDATE_GALLERY_DETAILS_HEADER": {
       if (!state.galleryDetails) return state;
-      return {
-        ...state,
-        galleryDetails: { ...state.galleryDetails, ...action.updates },
-      };
+      const updatedDetails = { ...state.galleryDetails, ...action.updates };
+      const galleries = action.updates.date !== undefined
+        ? state.galleries.map((g) =>
+            g.slug === state.galleryDetails!.slug ? { ...g, date: action.updates.date! } : g
+          )
+        : state.galleries;
+      return { ...state, galleryDetails: updatedDetails, galleries };
+    }
     case "UPDATE_PHOTO": {
       if (!state.galleryDetails) return state;
       const photos = [...state.galleryDetails.photos];
@@ -252,6 +263,7 @@ interface WorkspaceContextValue {
   debouncedSaveGalleries: () => void;
   debouncedSaveGalleryDetails: () => void;
   refreshGalleryCount: (slug: string) => Promise<void>;
+  syncGalleryDateToDetails: (galleryIndex: number) => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -456,6 +468,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }, 300);
   }, [saveGalleryDetails]);
 
+  const syncGalleryDateToDetails = useCallback(async (galleryIndex: number) => {
+    if (!stateRef.current.folderPath) return;
+    const gallery = stateRef.current.galleries[galleryIndex];
+    if (!gallery) return;
+    if (stateRef.current.galleryDetails?.slug === gallery.slug) {
+      debouncedSaveGalleryDetails();
+    } else {
+      const path = galleryDetailsJsonPath(gallery.slug);
+      try {
+        const exists = await fileExists(path);
+        if (!exists) return;
+        const raw = await readJsonFile(path) as Record<string, unknown>;
+        await writeJsonFile(path, { ...raw, date: gallery.date });
+      } catch (_e) { /* best-effort */ }
+    }
+  }, [galleryDetailsJsonPath, debouncedSaveGalleryDetails]);
+
   const openFolder = useCallback(async () => {
     const path = await openFolderDialog();
     if (!path) return;
@@ -617,6 +646,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     debouncedSaveGalleries,
     debouncedSaveGalleryDetails,
     refreshGalleryCount,
+    syncGalleryDateToDetails,
   };
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

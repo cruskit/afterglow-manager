@@ -7,6 +7,7 @@ import { UntrackedList } from "../components/UntrackedList";
 import { GalleryTile } from "../components/GalleryTile";
 import { ImageTile } from "../components/ImageTile";
 import { TagInput } from "../components/TagInput";
+import { DateInput } from "../components/DateInput";
 
 // Mock invoke for all tests
 const mockInvoke = vi.fn();
@@ -356,6 +357,58 @@ describe("TagInput", () => {
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "Backspace" });
     expect(onChange).toHaveBeenCalledWith(["landscape"]);
+  });
+});
+
+describe("DateInput", () => {
+  it("renders initial value in the input", () => {
+    renderWithProviders(
+      <DateInput value="12/01/2026" onChange={() => {}} onBlur={() => {}} />
+    );
+    const input = screen.getByPlaceholderText("dd/MM/yyyy");
+    expect((input as HTMLInputElement).value).toBe("12/01/2026");
+  });
+
+  it("shows placeholder when value is empty", () => {
+    renderWithProviders(
+      <DateInput value="" onChange={() => {}} onBlur={() => {}} />
+    );
+    expect(screen.getByPlaceholderText("dd/MM/yyyy")).toBeInTheDocument();
+  });
+
+  it("calls onChange while typing a valid dd/MM/yyyy value", () => {
+    const onChange = vi.fn();
+    renderWithProviders(
+      <DateInput value="" onChange={onChange} onBlur={() => {}} />
+    );
+    const input = screen.getByPlaceholderText("dd/MM/yyyy");
+    fireEvent.change(input, { target: { value: "28/02/2026" } });
+    expect(onChange).toHaveBeenCalledWith("28/02/2026");
+  });
+
+  it("shows error message on blur with invalid non-empty input", () => {
+    renderWithProviders(
+      <DateInput value="not-a-date" onChange={() => {}} onBlur={() => {}} />
+    );
+    const input = screen.getByPlaceholderText("dd/MM/yyyy");
+    fireEvent.blur(input);
+    expect(screen.getByText("Use dd/MM/yyyy format")).toBeInTheDocument();
+  });
+
+  it("does not show error for empty input on blur", () => {
+    renderWithProviders(
+      <DateInput value="" onChange={() => {}} onBlur={() => {}} />
+    );
+    const input = screen.getByPlaceholderText("dd/MM/yyyy");
+    fireEvent.blur(input);
+    expect(screen.queryByText("Use dd/MM/yyyy format")).not.toBeInTheDocument();
+  });
+
+  it("calendar icon button is present", () => {
+    renderWithProviders(
+      <DateInput value="" onChange={() => {}} onBlur={() => {}} />
+    );
+    expect(screen.getByRole("button", { name: "Open calendar" })).toBeInTheDocument();
   });
 });
 
