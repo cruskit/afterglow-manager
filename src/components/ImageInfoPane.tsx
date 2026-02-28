@@ -12,7 +12,7 @@ export function ImageInfoPane() {
     addUntrackedImage,
     addAllUntrackedImages,
     saveGalleryDetails,
-    saveGalleries,
+    setCoverPhoto,
   } = useWorkspace();
   const { galleryDetails, selectedImageIndex, currentDirImages, knownTags } = state;
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -65,15 +65,10 @@ export function ImageInfoPane() {
     setTimeout(() => saveGalleryDetails(), 50);
   }, [selectedImageIndex, dispatch, saveGalleryDetails]);
 
-  const handleSetAsCover = useCallback(() => {
+  const handleSetAsCover = useCallback(async () => {
     if (!selectedPhoto || galleryIndex < 0 || !galleryDetails) return;
-    dispatch({
-      type: "UPDATE_GALLERY",
-      index: galleryIndex,
-      entry: { cover: `${galleryDetails.slug}/${selectedPhoto.full}` },
-    });
-    saveGalleries();
-  }, [selectedPhoto, galleryIndex, galleryDetails, dispatch, saveGalleries]);
+    await setCoverPhoto(galleryIndex, `${galleryDetails.slug}/${selectedPhoto.full}`);
+  }, [selectedPhoto, galleryIndex, galleryDetails, setCoverPhoto]);
 
   const handleAddUntracked = useCallback(
     async (filename: string) => {

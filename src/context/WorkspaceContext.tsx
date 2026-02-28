@@ -237,6 +237,7 @@ interface WorkspaceContextValue {
   addUntrackedGallery: (dirName: string) => Promise<void>;
   addUntrackedImage: (filename: string) => Promise<void>;
   addAllUntrackedImages: () => Promise<void>;
+  setCoverPhoto: (galleryIndex: number, coverPath: string) => Promise<void>;
   resolveImagePath: (jsonPath: string, slug?: string) => string;
   debouncedSaveGalleries: () => void;
   debouncedSaveGalleryDetails: () => void;
@@ -537,6 +538,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     [galleryDetailsJsonPath]
   );
 
+  const setCoverPhoto = useCallback(async (galleryIndex: number, coverPath: string) => {
+    if (!stateRef.current.folderPath) return;
+    const galleries = [...stateRef.current.galleries];
+    galleries[galleryIndex] = { ...galleries[galleryIndex], cover: coverPath };
+    dispatch({ type: "UPDATE_GALLERY", index: galleryIndex, entry: { cover: coverPath } });
+    await writeJsonFile(galleriesJsonPath(), {
+      schemaVersion: CURRENT_GALLERIES_SCHEMA,
+      galleries,
+    });
+    dispatch({ type: "SET_GALLERIES", galleries, lastModified: Date.now() });
+  }, [galleriesJsonPath]);
+
   const addAllUntrackedImages = useCallback(async () => {
     if (!stateRef.current.galleryDetails) return;
     const { slug, photos } = stateRef.current.galleryDetails;
@@ -589,6 +602,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     addUntrackedGallery,
     addUntrackedImage,
     addAllUntrackedImages,
+    setCoverPhoto,
     resolveImagePath,
     debouncedSaveGalleries,
     debouncedSaveGalleryDetails,
