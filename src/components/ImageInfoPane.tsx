@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { UntrackedList } from "./UntrackedList";
+import { UntrackedImageGrid } from "./UntrackedImageGrid";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { TagInput } from "./TagInput";
 
@@ -136,10 +136,9 @@ export function ImageInfoPane() {
         <p className="text-sm text-muted-foreground">Select an image to view details.</p>
       )}
 
-      <UntrackedList
-        title="Untracked Images"
+      <UntrackedImageGrid
         items={untrackedImages}
-        emptyMessage="All images are tracked."
+        slug={galleryDetails?.slug ?? ""}
         onAdd={handleAddUntracked}
         onAddAll={addAllUntrackedImages}
       />
