@@ -3,7 +3,7 @@ import { useWorkspace } from "../context/WorkspaceContext";
 import { DateInput } from "./DateInput";
 
 export function GalleryHeader() {
-  const { state, dispatch, debouncedSaveGalleryDetails } = useWorkspace();
+  const { state, dispatch, debouncedSaveGalleryDetails, debouncedSaveGalleries } = useWorkspace();
   const { galleryDetails } = state;
 
   const handleChange = useCallback(
@@ -15,7 +15,8 @@ export function GalleryHeader() {
 
   const handleBlur = useCallback(() => {
     debouncedSaveGalleryDetails();
-  }, [debouncedSaveGalleryDetails]);
+    debouncedSaveGalleries();
+  }, [debouncedSaveGalleryDetails, debouncedSaveGalleries]);
 
   if (!galleryDetails) return null;
 

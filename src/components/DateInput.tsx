@@ -84,7 +84,7 @@ export function DateInput({ value, onChange, onBlur }: DateInputProps) {
       setIsValid(true);
       onChange(formatted);
       setCalendarOpen(false);
-      onBlur();
+      setTimeout(() => onBlur(), 0);
     },
     [calendarDate, onChange, onBlur]
   );

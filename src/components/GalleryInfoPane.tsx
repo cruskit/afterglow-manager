@@ -6,7 +6,7 @@ import { TagInput } from "./TagInput";
 import { DateInput } from "./DateInput";
 
 export function GalleryInfoPane() {
-  const { state, dispatch, debouncedSaveGalleries, addUntrackedGallery, saveGalleries } = useWorkspace();
+  const { state, dispatch, debouncedSaveGalleries, addUntrackedGallery, saveGalleries, syncGalleryDateToDetails } = useWorkspace();
   const { galleries, selectedGalleryIndex, subdirectories, knownTags } = state;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +37,12 @@ export function GalleryInfoPane() {
   const handleBlur = useCallback(() => {
     debouncedSaveGalleries();
   }, [debouncedSaveGalleries]);
+
+  const handleDateBlur = useCallback(() => {
+    if (selectedGalleryIndex === null) return;
+    debouncedSaveGalleries();
+    syncGalleryDateToDetails(selectedGalleryIndex);
+  }, [selectedGalleryIndex, debouncedSaveGalleries, syncGalleryDateToDetails]);
 
   const handleDelete = useCallback(async () => {
     if (selectedGalleryIndex === null) return;
@@ -76,7 +82,7 @@ export function GalleryInfoPane() {
             <DateInput
               value={selectedGallery.date}
               onChange={(val) => handleFieldChange("date", val)}
-              onBlur={handleBlur}
+              onBlur={handleDateBlur}
             />
           </div>
 
