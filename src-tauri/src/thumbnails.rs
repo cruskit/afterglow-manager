@@ -16,7 +16,9 @@ pub struct ThumbnailSpec {
 }
 
 pub struct ThumbnailResults {
+    #[allow(dead_code)]
     pub generated: usize,
+    #[allow(dead_code)]
     pub skipped: usize,
     pub errors: Vec<(PathBuf, String)>,
 }
@@ -188,6 +190,7 @@ pub fn generate_thumbnail(source: &Path, dest: &Path) -> Result<(), String> {
 
 /// Generate or skip thumbnails for all specs.  Failures are non-fatal and
 /// collected in `ThumbnailResults::errors`.
+#[cfg(test)]
 pub fn ensure_thumbnails(specs: &[ThumbnailSpec]) -> ThumbnailResults {
     ensure_thumbnails_with_progress(specs, |_, _, _| {})
 }

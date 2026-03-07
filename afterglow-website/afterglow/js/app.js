@@ -81,6 +81,12 @@
         matchesItem(p, [p.alt, p.gallerySlug, ...(p.tags || [])], { tags, terms })
       );
 
+      posthog.capture('search_performed', {
+        query: q,
+        gallery_results: matchedGalleries.length,
+        photo_results: matchedPhotos.length,
+      });
+
       let html = "";
 
       if (matchedGalleries.length === 0 && matchedPhotos.length === 0) {
@@ -177,6 +183,10 @@
 
   async function route() {
     const { view, gallery, query, photo } = getRoute();
+    const pageviewProps = {};
+    if (view === 'gallery' && gallery) pageviewProps.gallery_slug = gallery;
+    if (view === 'search' && query) pageviewProps.search_query = query;
+    posthog.capture('$pageview', pageviewProps);
     if (view === "search") {
       searchInput.value = query || "";
       await renderSearch(query || "");
@@ -229,12 +239,21 @@
   // ===== Gallery Renderer =====
   let currentPhotos = [];
   let currentIndex = 0;
+  let currentGallerySlug = null;
+  let currentGalleryName = null;
 
   async function renderGallery(slug, photoId) {
     app.innerHTML = '<div class="loading">Loading gallery&hellip;</div>';
     try {
       const detail = await fetchGalleryDetail(slug);
       currentPhotos = detail.photos;
+      currentGallerySlug = slug;
+      currentGalleryName = detail.name;
+      posthog.capture('gallery_viewed', {
+        gallery_slug: slug,
+        gallery_name: detail.name,
+        photo_count: detail.photos.length,
+      });
 
       const photoTags = [...new Set(
         detail.photos.flatMap(p => p.tags || [])
@@ -314,6 +333,12 @@
 
   // ===== Lightbox Download =====
   async function downloadPhoto(photo) {
+    posthog.capture('photo_downloaded', {
+      gallery_slug: currentGallerySlug,
+      gallery_name: currentGalleryName,
+      photo_alt: photo.alt || '',
+      photo_filename: photo.full.split('/').pop(),
+    });
     const url = photo.full;
     const filename = url.split("/").pop() || "photo.jpg";
     try {
@@ -348,6 +373,12 @@
   function showLightboxImage(index) {
     currentIndex = index;
     const photo = currentPhotos[index];
+    posthog.capture('photo_viewed', {
+      gallery_slug: currentGallerySlug,
+      gallery_name: currentGalleryName,
+      photo_index: index,
+      photo_alt: photo.alt || '',
+    });
     lightboxImg.classList.remove("loaded");
     lightboxImg.alt = photo.alt || "";
 
