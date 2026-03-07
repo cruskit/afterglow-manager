@@ -156,6 +156,23 @@ Use Conventional Commits in PR titles so CI can determine the bump type:
 
 The `prepare` CI job parses the merge commit message, runs `bump-version.sh`, commits the result, and pushes using `GITHUB_TOKEN` (which does not trigger a second pipeline run). The `release` job then checks out the bumped commit SHA and builds the release artifacts.
 
+## Analytics (PostHog)
+
+The static website includes PostHog analytics (v2.2.0+). The snippet is loaded in `afterglow-website/index.html` (before `</head>`) with `capture_pageview: false` and `person_profiles: 'identified_only'` — no cookies for anonymous visitors, no automatic pageview events (the SPA fires them manually).
+
+**`$pageview`** is captured manually at the top of `route()` in `app.js` on every navigation (initial load + hashchange). PostHog reads `window.location.href` (which includes the hash) as `$current_url`, so each gallery/search gets a distinct path entry. Gallery pages include `gallery_slug` and search pages include `search_query` as explicit properties, enabling breakdown by gallery in PostHog Insights/Funnels. This also enables PostHog Paths analysis and session replay timeline correlation.
+
+**Four custom events** are also captured for action detail:
+
+| Event | Trigger | Properties |
+|---|---|---|
+| `gallery_viewed` | `renderGallery()` success | `gallery_slug`, `gallery_name`, `photo_count` |
+| `photo_viewed` | `showLightboxImage()` (open + prev/next) | `gallery_slug`, `gallery_name`, `photo_index`, `photo_alt` |
+| `photo_downloaded` | `downloadPhoto()` | `gallery_slug`, `gallery_name`, `photo_alt`, `photo_filename` |
+| `search_performed` | `renderSearch()` after results computed | `query`, `gallery_results`, `photo_results` |
+
+Two module-level state variables (`currentGallerySlug`, `currentGalleryName`) are set in `renderGallery()` alongside `currentPhotos`/`currentIndex` so that `showLightboxImage` and `downloadPhoto` have access to the current gallery context.
+
 ## Keeping CLAUDE.md Current
 
 After implementing any new feature, update this file to reflect the change. Specifically:
