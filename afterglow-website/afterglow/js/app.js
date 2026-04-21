@@ -241,6 +241,7 @@
   let currentIndex = 0;
   let currentGallerySlug = null;
   let currentGalleryName = null;
+  let lightboxLoadGen = 0;
 
   async function renderGallery(slug, photoId) {
     app.innerHTML = '<div class="loading">Loading gallery&hellip;</div>';
@@ -380,21 +381,24 @@
       photo_alt: photo.alt || '',
     });
     lightboxImg.classList.remove("loaded");
+    lightboxImg.style.display = "none";
+    lightboxImg.src = "";
     lightboxImg.alt = photo.alt || "";
 
     const captionEl = document.getElementById("lightbox-caption");
     if (captionEl) captionEl.innerHTML = renderTags(photo.tags);
     if (lightboxDownload) lightboxDownload.onclick = () => downloadPhoto(photo);
 
+    const gen = ++lightboxLoadGen;
     const img = new Image();
     img.src = photo.full;
-    img.decode().then(() => {
+    const applyImage = () => {
+      if (gen !== lightboxLoadGen) return;
       lightboxImg.src = photo.full;
+      lightboxImg.style.display = "";
       lightboxImg.classList.add("loaded");
-    }).catch(() => {
-      lightboxImg.src = photo.full;
-      lightboxImg.classList.add("loaded");
-    });
+    };
+    img.decode().then(applyImage).catch(applyImage);
 
     // Preload adjacent
     if (index > 0) {
@@ -435,6 +439,17 @@
     if (e.key === "Escape") closeLightbox();
     if (e.key === "ArrowLeft") prevImage();
     if (e.key === "ArrowRight") nextImage();
+  });
+
+  let touchStartX = 0;
+  lightboxEl.addEventListener("touchstart", (e) => {
+    touchStartX = e.changedTouches[0].clientX;
+  }, { passive: true });
+  lightboxEl.addEventListener("touchend", (e) => {
+    if (lightboxEl.hidden) return;
+    const delta = e.changedTouches[0].clientX - touchStartX;
+    if (delta > 50) prevImage();
+    else if (delta < -50) nextImage();
   });
 
   // ===== Search Input =====
