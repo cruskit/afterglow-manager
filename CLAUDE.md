@@ -8,6 +8,8 @@ AfterGlow Manager is a Tauri 2.x + React 19 desktop app for managing JSON metada
 
 The static website itself (`afterglow-website/`) is bundled into this repo and published to S3 alongside the gallery data. It consists of `index.html`, `afterglow/css/styles.css`, and `afterglow/js/app.js` — plain HTML/CSS/JS with no build step.
 
+**Website design system (v2.3.0+):** "Cinematic" dark theme — near-black surfaces (`#0b0c0e` bg), volt-green accent (`#d6ff3e`), Oswald (headlines, uppercase), Barlow Semi Condensed (labels/UI), Barlow (body). Gallery grid uses 4:5 aspect-ratio cards with a dark gradient overlay, numbered badge, and scroll-reveal via IntersectionObserver. Detail pages have a full-bleed hero using the gallery cover + Oswald heading. Hero copy is hardcoded in `renderHome()` (grassroots football site). Header uses sticky backdrop-blur. Film grain overlay is a fixed SVG noise layer. Lightbox uses `#lb-cap` (top: index + alt), `#lb-count` (bottom), `#lb-dl` (angled clip-path download button). Fonts loaded from Google Fonts in `index.html`.
+
 ## Commands
 
 ```bash

@@ -6,6 +6,9 @@
   <title>Third Half Photos</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="afterglow/css/styles.css">
   <script>
     !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+" (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureFlagEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property get_session_property createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
@@ -17,45 +20,59 @@
     });
   </script>
 </head>
-<body>
+<body class="motion">
+  <div class="grain"></div>
+
   <header class="site-header">
-    <a href="#" class="brand">
-      <svg class="brand-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-        <circle cx="12" cy="13" r="4"/>
-      </svg>
-      <span>Third Half Photos</span>
-    </a>
-    <div class="header-search">
-      <input id="search-input" type="search" placeholder="Search photos, tags, dates…" autocomplete="off">
+    <div class="wrap nav">
+      <a class="brand" href="#">
+        <span class="tick"></span>
+        <span class="wm">Third<b>Half</b> Photos</span>
+      </a>
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search-input" type="search" placeholder="Search matches, tags…" autocomplete="off">
+      </label>
     </div>
   </header>
 
   <main id="app"></main>
   <div id="search-results" hidden></div>
 
-  <div id="lightbox" class="lightbox" hidden>
-    <button class="lightbox-close" aria-label="Close">&times;</button>
-    <button class="lightbox-prev" aria-label="Previous">&lsaquo;</button>
-    <button class="lightbox-next" aria-label="Next">&rsaquo;</button>
-    <div class="lightbox-img-container">
-      <img class="lightbox-img" src="" alt="">
+  <div id="lightbox" hidden>
+    <div class="lb-top">
+      <span class="lb-cap" id="lb-cap"></span>
+      <span class="ic" id="lb-close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </span>
     </div>
-    <div class="lightbox-footer">
-      <div class="lightbox-caption" id="lightbox-caption"></div>
-      <button class="lightbox-download" id="lightbox-download" aria-label="Download photo">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
+    <div class="lb-stage">
+      <span class="ic lb-nav lb-prev" id="lb-prev">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      </span>
+      <img id="lb-img" alt="">
+      <span class="ic lb-nav lb-next" id="lb-next">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+      </span>
+      <div class="lb-hint">
+        <span><kbd>←</kbd><kbd>→</kbd>Navigate</span>
+        <span><kbd>Esc</kbd>Close</span>
+      </div>
+    </div>
+    <div class="lb-bottom">
+      <span class="lb-count" id="lb-count"></span>
+      <button class="lb-dl" id="lb-dl">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
         Download
       </button>
     </div>
   </div>
 
   <footer class="site-footer">
-    <p>&copy; 2026 Third Half Photos. All rights reserved. AfterGlow v2.3.1</p>
+    <div class="wrap foot">
+      <span class="wm">Third<b>Half</b> Photos</span>
+      <span class="copy">&copy; 2026 Third Half Photos &nbsp;·&nbsp; AfterGlow v2.3.1</span>
+    </div>
   </footer>
 
   <script src="afterglow/js/app.js"></script>
